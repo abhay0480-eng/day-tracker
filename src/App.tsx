@@ -14,37 +14,87 @@ interface Day {
 }
 
 // --- Initial Data Configuration ---
-const initialDaysData: Day[] = [
-    {
-        date: '2025-07-04',
-        activities: [
-            { id: 1, task: 'Wake up', startTime: '6:50 AM', endTime: '6:57 AM' },
-            { id: 2, task: 'Washroom', startTime: '6:57 AM', endTime: '7:26 AM' },
-            { id: 3, task: 'Exercise', startTime: '7:26 AM', endTime: '7:53 AM' },
-            { id: 4, task: 'Breakfast', startTime: '7:53 AM', endTime: '8:05 AM' },
-        ],
-    },
-    {
-        date: '2025-07-05',
-        activities: [
-            { id: 1, task: 'Wake up', startTime: '7:00 AM', endTime: '7:10 AM' },
-            { id: 2, task: 'Office work', startTime: '7:10 AM', endTime: '10:00 AM' },
-        ],
-    }
-];
-
 const initialTaskOptions: string[] = [
   'Wake up', 'Washroom', 'Exercise', 'Breakfast', 'Video call', 
   'Office work', 'Rest', 'Lunch', 'Sleep', 'Read book', 'Call', 'Dinner'
 ];
 
 const taskIcons: { [key: string]: string } = {
-  'Wake up': '☀️', 'Washroom': '🚽', 'Exercise': '🏋️', 'Breakfast': '🥞', 
+  'Wake up': '☀️', 'Washroom': '🚽', 'Exercise': '🏋️', 'Breakfast': '�', 
   'Video call': '💻', 'Office work': '💼', 'Rest': '🧘', 'Lunch': '🥪',
   'Sleep': '😴', 'Read book': '📚', 'Call': '📞', 'Dinner': '🍽️',
 };
 
 // --- Helper Functions ---
+
+const calculateStreaks = (days: Day[], task: string | null): { currentStreak: number; longestStreak: number } => {
+    if (!days || days.length === 0) {
+        return { currentStreak: 0, longestStreak: 0 };
+    }
+
+    // Filter days based on the selected task. If no task, use all days.
+    const relevantDays = task
+        ? days.filter(day => day.activities.some(activity => activity.task === task))
+        : days;
+
+    if (relevantDays.length === 0) {
+        return { currentStreak: 0, longestStreak: 0 };
+    }
+
+    // Create Date objects in UTC to avoid timezone-related issues in calculation
+    const dates = relevantDays.map(day => {
+        const [year, month, dayOfMonth] = day.date.split('-').map(Number);
+        return new Date(Date.UTC(year, month - 1, dayOfMonth));
+    }).sort((a, b) => a.getTime() - b.getTime());
+
+    if (dates.length === 0) {
+        return { currentStreak: 0, longestStreak: 0 };
+    }
+
+    let longestStreak = 0;
+    let currentConsecutive = 0;
+
+    if (dates.length > 0) {
+        longestStreak = 1;
+        currentConsecutive = 1;
+    }
+
+    for (let i = 1; i < dates.length; i++) {
+        const diff = (dates[i].getTime() - dates[i - 1].getTime()) / (1000 * 60 * 60 * 24);
+        if (diff === 1) {
+            currentConsecutive++;
+        } else {
+            longestStreak = Math.max(longestStreak, currentConsecutive);
+            currentConsecutive = 1;
+        }
+    }
+    longestStreak = Math.max(longestStreak, currentConsecutive);
+
+    // Calculate the active current streak ending today or yesterday
+    let activeCurrentStreak = 0;
+    if (dates.length > 0) {
+        const lastDate = dates[dates.length - 1];
+        const today = new Date();
+        const todayUTC = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+        const yesterdayUTC = new Date(todayUTC);
+        yesterdayUTC.setUTCDate(todayUTC.getUTCDate() - 1);
+
+        if (lastDate.getTime() === todayUTC.getTime() || lastDate.getTime() === yesterdayUTC.getTime()) {
+            activeCurrentStreak = 1;
+            for (let i = dates.length - 2; i >= 0; i--) {
+                const diff = (dates[i + 1].getTime() - dates[i].getTime()) / (1000 * 60 * 60 * 24);
+                if (diff === 1) {
+                    activeCurrentStreak++;
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+
+    return { currentStreak: activeCurrentStreak, longestStreak };
+};
+
 
 const parseTime = (timeString: string | null): Date | null => {
     if (!timeString) return null;
@@ -82,7 +132,7 @@ const formatTo12Hour = (time24: string): string => {
 };
 
 const formatDateForDisplay = (dateString: string): string => {
-    const options: Intl.DateTimeFormatOptions = { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' };
+    const options: Intl.DateTimeFormatOptions = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
     return new Date(dateString + 'T00:00:00').toLocaleDateString('en-US', options);
 };
 
@@ -171,10 +221,18 @@ interface DayModalProps {
 function DayModal({ day, onClose, onSave }: DayModalProps) {
     const [currentActivities, setCurrentActivities] = useState<Activity[]>(day.activities);
     const [task, setTask] = useState<string>(initialTaskOptions[0]);
+    
     const [startTime, setStartTime] = useState<string>(() => {
         const now = new Date();
         return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     });
+    const [endTime, setEndTime] = useState<string>(() => {
+        const now = new Date();
+        now.setHours(now.getHours() + 1);
+        return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    });
+
+    const showEndTime = task !== 'Wake up' && task !== 'Sleep';
 
     useEffect(() => {
         document.body.style.overflow = 'hidden';
@@ -185,23 +243,22 @@ function DayModal({ day, onClose, onSave }: DayModalProps) {
 
     const handleAddActivity = (e: React.FormEvent) => {
         e.preventDefault();
-        const newActivityTime = formatTo12Hour(startTime);
-
-        const updatedActivities = [...currentActivities];
-        if (updatedActivities.length > 0) {
-            const lastActivity = updatedActivities[updatedActivities.length - 1];
-            if (!lastActivity.endTime) {
-                lastActivity.endTime = newActivityTime;
-            }
-        }
 
         const newActivity: Activity = {
             id: Date.now(),
             task: task,
-            startTime: newActivityTime,
-            endTime: null
+            startTime: formatTo12Hour(startTime),
+            endTime: showEndTime ? formatTo12Hour(endTime) : null
         };
-        setCurrentActivities([...updatedActivities, newActivity]);
+        
+        setCurrentActivities(prev => 
+            [...prev, newActivity].sort((a, b) => {
+                const timeA = parseTime(a.startTime);
+                const timeB = parseTime(b.startTime);
+                if (!timeA || !timeB) return 0;
+                return timeA.getTime() - timeB.getTime();
+            })
+        );
     };
     
     const handleSave = () => {
@@ -222,11 +279,11 @@ function DayModal({ day, onClose, onSave }: DayModalProps) {
                         {currentActivities.map(activity => (
                             <li key={activity.id} className="flex items-center justify-between py-3">
                                 <div className="flex items-center gap-4">
-                                    <span className="text-2xl w-8 text-center">{taskIcons[activity.task] || '�'}</span>
+                                    <span className="text-2xl w-8 text-center">{taskIcons[activity.task] || '📌'}</span>
                                     <div>
                                         <p className="font-semibold">{activity.task}</p>
                                         <p className="text-sm text-gray-500">
-                                            <span className="font-medium text-gray-700">Start:</span> {activity.startTime} 
+                                            {activity.endTime ? <span className="font-medium text-gray-700">Start:</span> : ''} {activity.startTime} 
                                             {activity.endTime && <> | <span className="font-medium text-gray-700">End:</span> {activity.endTime}</>}
                                         </p>
                                     </div>
@@ -245,10 +302,16 @@ function DayModal({ day, onClose, onSave }: DayModalProps) {
                         </select>
                     </div>
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Time</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">{showEndTime ? 'Start Time' : 'Time'}</label>
                         <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} className="w-full p-2 border border-gray-300 rounded-md"/>
                     </div>
-                    <button type="submit" className="w-full sm:w-auto px-4 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700">Add</button>
+                    {showEndTime && (
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">End Time</label>
+                            <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} className="w-full p-2 border border-gray-300 rounded-md"/>
+                        </div>
+                    )}
+                    <button type="submit" className="w-full sm:w-auto px-4 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 self-end">Add</button>
                 </form>
 
                 <footer className="p-4 flex flex-col sm:flex-row justify-end gap-4 border-t">
@@ -283,15 +346,17 @@ function DayCard({ day, onClick, onDelete }: DayCardProps) {
             onClick={onClick} 
             className="bg-white rounded-xl shadow-lg hover:shadow-xl hover:-translate-y-1 transition-all duration-300 cursor-pointer p-6 flex flex-col justify-between relative group"
         >
-             <button 
-                onClick={handleDeleteClick}
-                className="absolute top-2 right-2 p-2 rounded-full bg-red-100 text-red-600 opacity-0 group-hover:opacity-100 hover:bg-red-200 transition-opacity"
-                aria-label="Delete day"
-            >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-            </button>
+            <div className="absolute top-2 right-2 flex gap-1 lg:opacity-0 group-hover:opacity-100 transition-opacity">
+                 <button 
+                    onClick={handleDeleteClick}
+                    className="p-2 rounded-full bg-red-100 text-red-600  lg:hover:bg-red-200"
+                    aria-label="Delete day"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                </button>
+            </div>
             <div>
                 <h3 className="font-bold text-lg text-gray-800">{formatDateForDisplay(day.date)}</h3>
                 <p className="text-sm text-gray-500 mt-2">{summary.totalActivities} activities logged.</p>
@@ -325,7 +390,7 @@ function AddNewDay({ onAddDay }: AddNewDayProps) {
                 type="date" 
                 value={date}
                 onChange={e => setDate(e.target.value)}
-                className="p-2 rounded-md border-2 border-transparent focus:border-indigo-300 focus:ring-indigo-300 text-gray-800 w-full sm:w-auto"
+                className="p-2 rounded-md border-2 border-transparent bg-white focus:border-indigo-300 focus:ring-indigo-300 text-gray-800 w-full sm:w-auto"
             />
             <button type="submit" className="w-full sm:w-auto px-6 py-2 bg-white text-indigo-700 font-bold rounded-lg hover:bg-indigo-100 transition-colors">
                 Create
@@ -334,14 +399,89 @@ function AddNewDay({ onAddDay }: AddNewDayProps) {
     );
 }
 
+interface StreakCounterProps {
+    days: Day[];
+}
+
+function StreakCounter({ days }: StreakCounterProps) {
+    const [selectedTask, setSelectedTask] = useState<string>('Overall');
+
+    const { currentStreak, longestStreak } = useMemo(() => {
+        const taskToCalculate = selectedTask === 'Overall' ? null : selectedTask;
+        return calculateStreaks(days, taskToCalculate);
+    }, [days, selectedTask]);
+
+    const topStreak = useMemo(() => {
+        let top = { task: '', streak: 0 };
+        if (days.length === 0) return null;
+
+        for (const task of initialTaskOptions) {
+            const { longestStreak } = calculateStreaks(days, task);
+            if (longestStreak > top.streak) {
+                top = { task, streak: longestStreak };
+            }
+        }
+        return top.streak > 0 ? top : null;
+    }, [days]);
+
+    const streakTitle = selectedTask === 'Overall' ? 'Overall Consistency' : `${selectedTask} Streak`;
+    const streakIcon = selectedTask === 'Overall' ? '🔥' : (taskIcons[selectedTask] || '🎯');
+
+    return (
+        <div className="p-6 bg-gradient-to-br from-orange-400 to-red-500 text-white rounded-xl shadow-lg flex flex-col gap-4">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                    <span className="text-5xl">{streakIcon}</span>
+                    <div className="text-center sm:text-left">
+                        <h3 className="text-xl font-bold">{streakTitle}</h3>
+                        <p className="opacity-90">Keep the momentum going!</p>
+                    </div>
+                </div>
+                <div className="flex gap-6 sm:gap-10 text-center">
+                    <div>
+                        <p className="text-4xl font-extrabold">{currentStreak}</p>
+                        <p className="font-semibold opacity-90 text-sm">Current</p>
+                    </div>
+                    <div>
+                        <p className="text-4xl font-extrabold">{longestStreak}</p>
+                        <p className="font-semibold opacity-90 text-sm">Longest</p>
+                    </div>
+                </div>
+            </div>
+            <div className="pt-4 border-t border-white/20">
+                <label htmlFor="streak-select" className="block text-sm font-medium text-white mb-2">
+                    View streak for:
+                </label>
+                <select
+                    id="streak-select"
+                    value={selectedTask}
+                    onChange={e => setSelectedTask(e.target.value)}
+                    className="w-full p-2 rounded-md bg-white/20 text-white border-transparent focus:ring-2 focus:ring-white"
+                >
+                    <option value="Overall">Overall</option>
+                    {initialTaskOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                </select>
+            </div>
+            {topStreak && (
+                <div className="mt-2 text-center">
+                    <p className="text-sm font-semibold text-white/90">
+                        🏆 Top Streak: <span className="font-bold">{topStreak.task}</span> ({topStreak.streak} days)
+                    </p>
+                </div>
+            )}
+        </div>
+    );
+}
+
+
 export default function App() {
     const [days, setDays] = useState<Day[]>(() => {
         try {
             const savedDays = localStorage.getItem('dayTrackerData');
-            return savedDays ? JSON.parse(savedDays) : initialDaysData;
+            return savedDays ? JSON.parse(savedDays) : [];
         } catch (error) {
             console.error("Could not parse data from localStorage", error);
-            return initialDaysData;
+            return [];
         }
     });
     const [selectedDay, setSelectedDay] = useState<Day | null>(null);
@@ -365,9 +505,9 @@ export default function App() {
         setDays(prevDays => {
             const dayExists = prevDays.some(d => d.date === updatedDay.date);
             if (dayExists) {
-                return prevDays.map(d => d.date === updatedDay.date ? updatedDay : d);
+                return prevDays.map(d => d.date === updatedDay.date ? updatedDay : d).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
             } else {
-                return [...prevDays, updatedDay].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+                return [...prevDays, updatedDay].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
             }
         });
     };
@@ -375,6 +515,7 @@ export default function App() {
     const handleAddDay = (date: string) => {
         const dayExists = days.some(d => d.date === date);
         if (dayExists) {
+            // Using a custom modal/alert in the future would be better than window.alert
             alert("This day already exists on your dashboard.");
             return;
         }
@@ -396,6 +537,11 @@ export default function App() {
         }
     };
 
+    // Sort days for display, most recent first
+    const sortedDays = useMemo(() => {
+        return [...days].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    }, [days]);
+
     return (
         <div className="bg-gray-100 min-h-screen font-sans">
             {selectedDay && <DayModal day={selectedDay} onClose={handleCloseModal} onSave={handleSaveDay} />}
@@ -412,20 +558,34 @@ export default function App() {
                     <p className="text-lg text-gray-500 mt-2">An overview of your tracked days.</p>
                 </header>
 
-                <div className="mb-8">
+                <div className="space-y-8">
                     <AddNewDay onAddDay={handleAddDay} />
+                    
+                    {days.length > 0 && <StreakCounter days={days} />}
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {days.map(day => (
-                        <DayCard 
-                            key={day.date} 
-                            day={day} 
-                            onClick={() => handleOpenModal(day)}
-                            onDelete={handleDeleteRequest}
-                        />
-                    ))}
-                </div>
+                {sortedDays.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-8">
+                        {sortedDays.map(day => (
+                            <DayCard 
+                                key={day.date} 
+                                day={day} 
+                                onClick={() => handleOpenModal(day)}
+                                onDelete={handleDeleteRequest}
+                            />
+                        ))}
+                    </div>
+                ) : (
+                    <div className="text-center py-16 px-6 bg-white rounded-xl shadow-lg mt-8">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        <h3 className="mt-2 text-lg font-medium text-gray-900">No days tracked yet</h3>
+                        <p className="mt-1 text-sm text-gray-500">
+                            Click "Create" above to add your first day and start tracking your activities.
+                        </p>
+                    </div>
+                )}
             </div>
         </div>
     );

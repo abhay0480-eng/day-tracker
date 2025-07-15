@@ -32,7 +32,6 @@ const calculateStreaks = (days: Day[], task: string | null): { currentStreak: nu
         return { currentStreak: 0, longestStreak: 0 };
     }
 
-    // Filter days based on the selected task. If no task, use all days.
     const relevantDays = task
         ? days.filter(day => day.activities.some(activity => activity.task === task))
         : days;
@@ -41,7 +40,6 @@ const calculateStreaks = (days: Day[], task: string | null): { currentStreak: nu
         return { currentStreak: 0, longestStreak: 0 };
     }
 
-    // Create Date objects in UTC to avoid timezone-related issues in calculation
     const dates = relevantDays.map(day => {
         const [year, month, dayOfMonth] = day.date.split('-').map(Number);
         return new Date(Date.UTC(year, month - 1, dayOfMonth));
@@ -70,7 +68,6 @@ const calculateStreaks = (days: Day[], task: string | null): { currentStreak: nu
     }
     longestStreak = Math.max(longestStreak, currentConsecutive);
 
-    // Calculate the active current streak ending today or yesterday
     let activeCurrentStreak = 0;
     if (dates.length > 0) {
         const lastDate = dates[dates.length - 1];
@@ -131,6 +128,19 @@ const formatTo12Hour = (time24: string): string => {
     return `${formattedHours}:${minutes} ${ampm}`;
 };
 
+const convertTo24Hour = (time12: string | null): string => {
+    if (!time12) return '';
+    const [time, modifier] = time12.split(' ');
+    let [hours, minutes] = time.split(':').map(Number);
+    if (modifier === 'PM' && hours < 12) {
+        hours += 12;
+    }
+    if (modifier === 'AM' && hours === 12) {
+        hours = 0;
+    }
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+};
+
 const formatDateForDisplay = (dateString: string): string => {
     const options: Intl.DateTimeFormatOptions = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
     return new Date(dateString + 'T00:00:00').toLocaleDateString('en-US', options);
@@ -170,15 +180,20 @@ const useNotificationReminder = (days: Day[] | undefined) => {
                     
                     if (hoursSinceLastActivity > 1) {
                          new Notification("Day Tracker Reminder", {
-                            body: `It's been a while! Don't forget to track your last hour.`,
+                            body: "Gentle reminder: What have you been up to for the last hour? Don't forget to log it!",
                             icon: '/pwa-192x192.png'
                         });
                     }
                 }
+            } else if (today && today.activities.length === 0) {
+                new Notification("Day Tracker Reminder", {
+                    body: "Ready to start your day? Log your first activity!",
+                    icon: '/pwa-192x192.png'
+                });
             }
         };
 
-        const intervalId = setInterval(checkLastActivity, 30 * 60 * 1000);
+        const intervalId = setInterval(checkLastActivity, 20 * 60 * 1000);
 
         return () => clearInterval(intervalId);
 
@@ -216,11 +231,13 @@ interface DayModalProps {
     day: Day;
     onClose: () => void;
     onSave: (day: Day) => void;
+    taskOptions: string[];
+    onAddNewTask: (task: string) => void;
 }
 
-function DayModal({ day, onClose, onSave }: DayModalProps) {
+function DayModal({ day, onClose, onSave, taskOptions, onAddNewTask }: DayModalProps) {
     const [currentActivities, setCurrentActivities] = useState<Activity[]>(day.activities);
-    const [task, setTask] = useState<string>(initialTaskOptions[0]);
+    const [task, setTask] = useState<string>(taskOptions[0] || '');
     
     const [startTime, setStartTime] = useState<string>(() => {
         const now = new Date();
@@ -228,9 +245,13 @@ function DayModal({ day, onClose, onSave }: DayModalProps) {
     });
     const [endTime, setEndTime] = useState<string>(() => {
         const now = new Date();
-        now.setHours(now.getHours() + 1);
+        now.setMinutes(now.getMinutes() + 30);
         return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     });
+
+    const [editingActivityId, setEditingActivityId] = useState<number | null>(null);
+    const [editedStartTime, setEditedStartTime] = useState('');
+    const [editedEndTime, setEditedEndTime] = useState('');
 
     const showEndTime = task !== 'Wake up' && task !== 'Sleep';
 
@@ -243,22 +264,65 @@ function DayModal({ day, onClose, onSave }: DayModalProps) {
 
     const handleAddActivity = (e: React.FormEvent) => {
         e.preventDefault();
+        const trimmedTask = task.trim();
+        if (trimmedTask === '') return;
+
+        onAddNewTask(trimmedTask);
 
         const newActivity: Activity = {
             id: Date.now(),
-            task: task,
+            task: trimmedTask,
             startTime: formatTo12Hour(startTime),
             endTime: showEndTime ? formatTo12Hour(endTime) : null
         };
+        const updatedActivities = [...currentActivities, newActivity].sort((a, b) => {
+            const timeA = parseTime(a.startTime);
+            const timeB = parseTime(b.startTime);
+            if (!timeA || !timeB) return 0;
+            return timeA.getTime() - timeB.getTime();
+        });
+        setCurrentActivities(updatedActivities);
+        setTask(taskOptions[0] || ''); // Reset input
+    };
+
+    const handleDeleteActivity = (id: number) => {
+        setCurrentActivities(prev => prev.filter(act => act.id !== id));
+    };
+
+    const handleStartEditing = (activity: Activity) => {
+        setEditingActivityId(activity.id);
+        setEditedStartTime(convertTo24Hour(activity.startTime));
+        setEditedEndTime(convertTo24Hour(activity.endTime));
+    };
+
+    const handleCancelEditing = () => {
+        setEditingActivityId(null);
+        setEditedStartTime('');
+        setEditedEndTime('');
+    };
+
+    const handleUpdateActivity = () => {
+        if (editingActivityId === null) return;
         
-        setCurrentActivities(prev => 
-            [...prev, newActivity].sort((a, b) => {
-                const timeA = parseTime(a.startTime);
-                const timeB = parseTime(b.startTime);
-                if (!timeA || !timeB) return 0;
-                return timeA.getTime() - timeB.getTime();
-            })
-        );
+        const updatedActivities = currentActivities.map(act => {
+            if (act.id === editingActivityId) {
+                const showEnd = act.task !== 'Wake up' && act.task !== 'Sleep';
+                return {
+                    ...act,
+                    startTime: formatTo12Hour(editedStartTime),
+                    endTime: showEnd ? formatTo12Hour(editedEndTime) : null,
+                };
+            }
+            return act;
+        }).sort((a, b) => {
+            const timeA = parseTime(a.startTime);
+            const timeB = parseTime(b.startTime);
+            if (!timeA || !timeB) return 0;
+            return timeA.getTime() - timeB.getTime();
+        });
+
+        setCurrentActivities(updatedActivities);
+        handleCancelEditing();
     };
     
     const handleSave = () => {
@@ -267,7 +331,7 @@ function DayModal({ day, onClose, onSave }: DayModalProps) {
     };
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-60 backdrop-blur-sm flex justify-center items-center z-50 p-0 sm:p-4">
+        <div className="fixed inset-0  bg-opacity-60 backdrop-blur-sm flex justify-center items-center z-50 p-0 sm:p-4">
             <div className="bg-white rounded-none sm:rounded-2xl shadow-2xl w-full max-w-2xl h-full sm:h-[90vh] flex flex-col">
                 <header className="p-4 border-b">
                     <h2 className="text-xl sm:text-2xl font-bold text-gray-800">{formatDateForDisplay(day.date)}</h2>
@@ -275,31 +339,80 @@ function DayModal({ day, onClose, onSave }: DayModalProps) {
                 </header>
 
                 <div className="flex-grow overflow-y-auto p-4">
-                    <ul className="divide-y divide-gray-200">
-                        {currentActivities.map(activity => (
-                            <li key={activity.id} className="flex items-center justify-between py-3">
-                                <div className="flex items-center gap-4">
-                                    <span className="text-2xl w-8 text-center">{taskIcons[activity.task] || '📌'}</span>
-                                    <div>
-                                        <p className="font-semibold">{activity.task}</p>
-                                        <p className="text-sm text-gray-500">
-                                            {activity.endTime ? <span className="font-medium text-gray-700">Start:</span> : ''} {activity.startTime} 
-                                            {activity.endTime && <> | <span className="font-medium text-gray-700">End:</span> {activity.endTime}</>}
-                                        </p>
-                                    </div>
-                                </div>
-                                <span className="text-sm font-medium bg-gray-100 px-2 py-1 rounded-full">{calculateDuration(activity.startTime, activity.endTime)}</span>
-                            </li>
-                        ))}
-                    </ul>
+                    {currentActivities.length > 0 ? (
+                        <ul className="divide-y divide-gray-200">
+                            {currentActivities.map(activity => (
+                                <li key={activity.id} className="py-3">
+                                    {editingActivityId === activity.id ? (
+                                        <div className="flex flex-col gap-2">
+                                            <div className="flex items-center gap-4">
+                                                <span className="text-2xl w-8 text-center">{taskIcons[activity.task] || '📌'}</span>
+                                                <p className="font-semibold flex-grow">{activity.task}</p>
+                                            </div>
+                                            <div className="flex items-center gap-2 pl-12">
+                                                <input type="time" value={editedStartTime} onChange={e => setEditedStartTime(e.target.value)} className="w-full p-1 border border-gray-300 rounded-md"/>
+                                                { (activity.task !== 'Wake up' && activity.task !== 'Sleep') &&
+                                                    <>
+                                                        <span>-</span>
+                                                        <input type="time" value={editedEndTime} onChange={e => setEditedEndTime(e.target.value)} className="w-full p-1 border border-gray-300 rounded-md"/>
+                                                    </>
+                                                }
+                                            </div>
+                                            <div className="flex justify-end gap-2 mt-2">
+                                                <button onClick={handleCancelEditing} className="px-3 py-1 bg-gray-200 text-sm rounded-md">Cancel</button>
+                                                <button onClick={handleUpdateActivity} className="px-3 py-1 bg-blue-600 text-white text-sm rounded-md">Save</button>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-4">
+                                                <span className="text-2xl w-8 text-center">{taskIcons[activity.task] || '📌'}</span>
+                                                <div>
+                                                    <p className="font-semibold">{activity.task}</p>
+                                                    <p className="text-sm text-gray-500">
+                                                        {activity.startTime} {activity.endTime && ` - ${activity.endTime}`}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-sm font-medium bg-gray-100 px-2 py-1 rounded-full">{calculateDuration(activity.startTime, activity.endTime)}</span>
+                                                <button onClick={() => handleStartEditing(activity)} className="p-2 text-gray-500 hover:text-blue-600 hover:bg-gray-100 rounded-full">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L16.732 3.732z" /></svg>
+                                                </button>
+                                                <button onClick={() => handleDeleteActivity(activity.id)} className="p-2 text-gray-500 hover:text-red-600 hover:bg-gray-100 rounded-full">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </li>
+                            ))}
+                        </ul>
+                    ) : (
+                        <div className="text-center py-10 flex flex-col items-center justify-center h-full">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            <p className="mt-4 text-gray-500 font-semibold">No activities logged for this day yet.</p>
+                            <p className="text-gray-400 text-sm mt-1">Use the form below to add your first activity.</p>
+                        </div>
+                    )}
                 </div>
 
                 <form onSubmit={handleAddActivity} className="p-4 bg-gray-50 border-t flex flex-col sm:flex-row sm:items-end gap-4">
                     <div className="flex-grow">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Task</label>
-                        <select value={task} onChange={e => setTask(e.target.value)} className="w-full p-2 border border-gray-300 rounded-md">
-                            {initialTaskOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                        </select>
+                        <label htmlFor="task-input" className="block text-sm font-medium text-gray-700 mb-1">Task</label>
+                        <input
+                          id="task-input"
+                          list="task-options"
+                          value={task}
+                          onChange={e => setTask(e.target.value)}
+                          placeholder="Type or select a task"
+                          className="w-full p-2 border border-gray-300 rounded-md"
+                        />
+                        <datalist id="task-options">
+                          {taskOptions.map(opt => <option key={opt} value={opt} />)}
+                        </datalist>
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">{showEndTime ? 'Start Time' : 'Time'}</label>
@@ -390,6 +503,7 @@ function AddNewDay({ onAddDay }: AddNewDayProps) {
                 type="date" 
                 value={date}
                 onChange={e => setDate(e.target.value)}
+                max={formatDateForInput()} // This prevents selecting a future date
                 className="p-2 rounded-md border-2 border-transparent bg-white focus:border-indigo-300 focus:ring-indigo-300 text-gray-800 w-full sm:w-auto"
             />
             <button type="submit" className="w-full sm:w-auto px-6 py-2 bg-white text-indigo-700 font-bold rounded-lg hover:bg-indigo-100 transition-colors">
@@ -401,9 +515,10 @@ function AddNewDay({ onAddDay }: AddNewDayProps) {
 
 interface StreakCounterProps {
     days: Day[];
+    taskOptions: string[];
 }
 
-function StreakCounter({ days }: StreakCounterProps) {
+function StreakCounter({ days, taskOptions }: StreakCounterProps) {
     const [selectedTask, setSelectedTask] = useState<string>('Overall');
 
     const { currentStreak, longestStreak } = useMemo(() => {
@@ -415,14 +530,14 @@ function StreakCounter({ days }: StreakCounterProps) {
         let top = { task: '', streak: 0 };
         if (days.length === 0) return null;
 
-        for (const task of initialTaskOptions) {
+        for (const task of taskOptions) {
             const { longestStreak } = calculateStreaks(days, task);
             if (longestStreak > top.streak) {
                 top = { task, streak: longestStreak };
             }
         }
         return top.streak > 0 ? top : null;
-    }, [days]);
+    }, [days, taskOptions]);
 
     const streakTitle = selectedTask === 'Overall' ? 'Overall Consistency' : `${selectedTask} Streak`;
     const streakIcon = selectedTask === 'Overall' ? '🔥' : (taskIcons[selectedTask] || '🎯');
@@ -459,7 +574,7 @@ function StreakCounter({ days }: StreakCounterProps) {
                     className="w-full p-2 rounded-md bg-white/20 text-white border-transparent focus:ring-2 focus:ring-white"
                 >
                     <option value="Overall">Overall</option>
-                    {initialTaskOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                    {taskOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                 </select>
             </div>
             {topStreak && (
@@ -484,6 +599,17 @@ export default function App() {
             return [];
         }
     });
+
+    const [taskOptions, setTaskOptions] = useState<string[]>(() => {
+        try {
+            const savedTasks = localStorage.getItem('dayTrackerTasks');
+            return savedTasks ? JSON.parse(savedTasks) : initialTaskOptions;
+        } catch (error) {
+            console.error("Could not parse tasks from localStorage", error);
+            return initialTaskOptions;
+        }
+    });
+
     const [selectedDay, setSelectedDay] = useState<Day | null>(null);
     const [dayToDelete, setDayToDelete] = useState<string | null>(null);
 
@@ -492,6 +618,10 @@ export default function App() {
     useEffect(() => {
         localStorage.setItem('dayTrackerData', JSON.stringify(days));
     }, [days]);
+
+    useEffect(() => {
+        localStorage.setItem('dayTrackerTasks', JSON.stringify(taskOptions));
+    }, [taskOptions]);
 
     const handleOpenModal = (day: Day) => {
         setSelectedDay(day);
@@ -515,7 +645,6 @@ export default function App() {
     const handleAddDay = (date: string) => {
         const dayExists = days.some(d => d.date === date);
         if (dayExists) {
-            // Using a custom modal/alert in the future would be better than window.alert
             alert("This day already exists on your dashboard.");
             return;
         }
@@ -537,14 +666,19 @@ export default function App() {
         }
     };
 
-    // Sort days for display, most recent first
+    const handleAddNewTask = (newTask: string) => {
+        if (!taskOptions.includes(newTask)) {
+            setTaskOptions(prev => [...prev, newTask]);
+        }
+    };
+
     const sortedDays = useMemo(() => {
         return [...days].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     }, [days]);
 
     return (
         <div className="bg-gray-100 min-h-screen font-sans">
-            {selectedDay && <DayModal day={selectedDay} onClose={handleCloseModal} onSave={handleSaveDay} />}
+            {selectedDay && <DayModal day={selectedDay} onClose={handleCloseModal} onSave={handleSaveDay} taskOptions={taskOptions} onAddNewTask={handleAddNewTask} />}
             <ConfirmationModal 
                 isOpen={!!dayToDelete}
                 onClose={() => setDayToDelete(null)}
@@ -561,7 +695,7 @@ export default function App() {
                 <div className="space-y-8">
                     <AddNewDay onAddDay={handleAddDay} />
                     
-                    {days.length > 0 && <StreakCounter days={days} />}
+                    {days.length > 0 && <StreakCounter days={days} taskOptions={taskOptions} />}
                 </div>
 
                 {sortedDays.length > 0 ? (

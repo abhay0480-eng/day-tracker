@@ -9,7 +9,7 @@ interface Activity {
 }
 
 interface Day {
-    date: string;
+    date: string; // This will be the primary key
     activities: Activity[];
 }
 
@@ -40,7 +40,7 @@ const initialTaskOptions: string[] = [
 
 const taskIcons: { [key: string]: string } = {
   'Wake up': '☀️', 'Washroom': '🚽', 'Exercise': '🏋️', 'Breakfast': '🥞', 
-  'Video call': '💻', 'Office work': '💼', 'Rest': '�', 'Lunch': '🥪',
+  'Video call': '💻', 'Office work': '💼', 'Rest': '🧘', 'Lunch': '🥪',
   'Sleep': '😴', 'Read book': '📚', 'Call': '📞', 'Dinner': '🍽️',
 };
 
@@ -93,6 +93,49 @@ const formatDateForInput = (date: Date = new Date()): string => {
     return `${year}-${month}-${day}`;
 };
 
+// --- Notification Hook ---
+const useNotificationReminder = (days: Day[] | undefined) => {
+    useEffect(() => {
+        if (!("Notification" in window)) {
+            console.log("This browser does not support desktop notification");
+            return;
+        }
+
+        Notification.requestPermission();
+
+        const checkLastActivity = () => {
+            if (!days || days.length === 0 || Notification.permission !== 'granted') {
+                return;
+            }
+            
+            const todayStr = formatDateForInput(new Date());
+            const today = days.find(d => d.date === todayStr);
+
+            if (today && today.activities.length > 0) {
+                const lastActivity = today.activities[today.activities.length - 1];
+                const lastActivityTime = parseTime(lastActivity.startTime);
+                
+                if (lastActivityTime) {
+                    const hoursSinceLastActivity = (new Date().getTime() - lastActivityTime.getTime()) / (1000 * 60 * 60);
+                    
+                    if (hoursSinceLastActivity > 1) {
+                         new Notification("Day Tracker Reminder", {
+                            body: `It's been a while! Don't forget to track your last hour.`,
+                            icon: '/pwa-192x192.png'
+                        });
+                    }
+                }
+            }
+        };
+
+        const intervalId = setInterval(checkLastActivity, 30 * 60 * 1000);
+
+        return () => clearInterval(intervalId);
+
+    }, [days]);
+};
+
+
 // --- React Components ---
 
 interface ConfirmationModalProps {
@@ -106,7 +149,7 @@ function ConfirmationModal({ isOpen, onClose, onConfirm, message }: Confirmation
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 bg-black !bg-opacity-50 backdrop-blur-sm flex justify-center items-center z-50 p-4">
+        <div className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex justify-center items-center z-50 p-4">
             <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-sm">
                 <h3 className="text-lg font-semibold mb-4">Confirm Deletion</h3>
                 <p className="mb-6">{message}</p>
@@ -179,7 +222,7 @@ function DayModal({ day, onClose, onSave }: DayModalProps) {
                         {currentActivities.map(activity => (
                             <li key={activity.id} className="flex items-center justify-between py-3">
                                 <div className="flex items-center gap-4">
-                                    <span className="text-2xl w-8 text-center">{taskIcons[activity.task] || '📌'}</span>
+                                    <span className="text-2xl w-8 text-center">{taskIcons[activity.task] || '�'}</span>
                                     <div>
                                         <p className="font-semibold">{activity.task}</p>
                                         <p className="text-sm text-gray-500">
@@ -231,7 +274,7 @@ function DayCard({ day, onClick, onDelete }: DayCardProps) {
     }, [day.activities]);
     
     const handleDeleteClick = (e: React.MouseEvent) => {
-        e.stopPropagation(); // Prevent the card's onClick from firing
+        e.stopPropagation();
         onDelete(day.date);
     };
 
@@ -292,9 +335,23 @@ function AddNewDay({ onAddDay }: AddNewDayProps) {
 }
 
 export default function App() {
-    const [days, setDays] = useState<Day[]>(initialDaysData);
+    const [days, setDays] = useState<Day[]>(() => {
+        try {
+            const savedDays = localStorage.getItem('dayTrackerData');
+            return savedDays ? JSON.parse(savedDays) : initialDaysData;
+        } catch (error) {
+            console.error("Could not parse data from localStorage", error);
+            return initialDaysData;
+        }
+    });
     const [selectedDay, setSelectedDay] = useState<Day | null>(null);
     const [dayToDelete, setDayToDelete] = useState<string | null>(null);
+
+    useNotificationReminder(days);
+
+    useEffect(() => {
+        localStorage.setItem('dayTrackerData', JSON.stringify(days));
+    }, [days]);
 
     const handleOpenModal = (day: Day) => {
         setSelectedDay(day);

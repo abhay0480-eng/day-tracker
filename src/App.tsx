@@ -214,7 +214,7 @@ function ConfirmationModal({ isOpen, onClose, onConfirm, message }: Confirmation
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex justify-center items-center z-50 p-4">
+        <div className="fixed inset-0 bg-opacity-50 backdrop-blur-sm flex justify-center items-center z-50 p-4">
             <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-sm">
                 <h3 className="text-lg font-semibold mb-4">Confirm Deletion</h3>
                 <p className="mb-6">{message}</p>

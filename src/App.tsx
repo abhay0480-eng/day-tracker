@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import toast, { Toaster } from 'react-hot-toast';
-import { motion, AnimatePresence } from 'framer-motion';
 
 // --- Type Definitions ---
 interface Activity {

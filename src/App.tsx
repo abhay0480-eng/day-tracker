@@ -422,10 +422,8 @@ function DayCard({ day, onClick, onDelete }: DayCardProps) {
 
     const workOffset = circumference * (1 - workPercentage);
     const oddTaskOffset = circumference * (1 - oddTaskPercentage);
-    const idleOffset = circumference * (1 - (1 - workPercentage - oddTaskPercentage));
 
     const oddTaskRotation = -90 + workPercentage * 360;
-    const idleRotation = -90 + (workPercentage + oddTaskPercentage) * 360;
 
     return (
         <div 

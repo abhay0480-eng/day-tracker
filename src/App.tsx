@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import toast, { Toaster } from 'react-hot-toast';
+import { motion, AnimatePresence } from 'framer-motion';
 
 // --- Type Definitions ---
 interface Activity {
@@ -30,7 +31,7 @@ const initialTaskOptions: string[] = [
 
 const taskIcons: { [key: string]: string } = {
   'Wake up': '☀️', 'Washroom': '🚽', 'Exercise': '🏋️', 'Breakfast': '🥞', 
-  'Video call': '💻', 'Office work': '💼', 'Rest': '🧘', 'Lunch': '�',
+  'Video call': '💻', 'Office work': '💼', 'Rest': '🧘', 'Lunch': '🥪',
   'Sleep': '😴', 'Read book': '📚', 'Call': '📞', 'Dinner': '🍽️',
   'Watch TV': '📺', 'Editing youTube Video': '🎬', 'Drink Water': '💧', 
   'Office Meeting Scrum': '🧑‍💻', 'Take Bath': '🛀', 'Self Learning': '🧠'
@@ -123,6 +124,48 @@ const getAICoachingTip = async (goal: Goal, progress: number, daysLeft: number):
         throw error;
     }
 };
+
+const getAIDailyPlan = async (days: Day[], goals: Goal[]): Promise<string[]> => {
+    const recentDays = days.slice(-5);
+    const prompt = `You are a friendly and motivating productivity coach. Based on the user's past activity logs and their current goals, create a simple, suggested schedule for today, which is a ${new Date().toLocaleString('en-US', { weekday: 'long' })}. The user's goals are: ${JSON.stringify(goals)}. Here is their activity log from the last few days: ${JSON.stringify(recentDays)}. Suggest 3-5 key activities for them to focus on today. Keep each suggestion concise and actionable.`;
+    
+    try {
+        const apiKey = "AIzaSyCHh9juUudLVNQRgTKo5EPQ9iuOMC7Gd0s"; // API key is handled by the environment
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+        const payload = {
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
+            generationConfig: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: "OBJECT",
+                    properties: {
+                        plan: {
+                            type: "ARRAY",
+                            items: { type: "STRING" }
+                        }
+                    }
+                }
+            }
+        };
+        const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        
+        if (!response.ok) {
+            console.error("AI API request failed:", response.status, response.statusText);
+            throw new Error("Could not generate a plan.");
+        }
+
+        const result = await response.json();
+        if (result.candidates && result.candidates.length > 0) {
+            const parsed = JSON.parse(result.candidates[0].content.parts[0].text);
+            return parsed.plan || [];
+        }
+        throw new Error("Could not generate a plan.");
+    } catch (error) { 
+        console.error("Error fetching AI daily plan:", error); 
+        throw error;
+    }
+};
+
 
 // --- Helper Functions ---
 const calculateGoalProgress = (goal: Goal, days: Day[]): number => {
@@ -260,7 +303,7 @@ interface ConfirmationModalProps {
 function ConfirmationModal({ isOpen, onClose, onConfirm, message }: ConfirmationModalProps) {
     if (!isOpen) return null;
     return (
-        <div className="fixed inset-0  bg-opacity-50 backdrop-blur-sm flex justify-center items-center z-50 p-4">
+        <div className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex justify-center items-center z-50 p-4">
             <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-sm">
                 <h3 className="text-lg font-semibold mb-4">Confirm Deletion</h3>
                 <p className="mb-6">{message}</p>
@@ -328,7 +371,7 @@ function DayModal({ day, allDays, onClose, onSave, taskOptions, onAddNewTask }: 
     const handleSave = () => { onSave({ ...day, activities: currentActivities }); onClose(); toast.success('Day saved successfully!'); };
     
     return (
-        <div className="fixed inset-0  bg-opacity-60 backdrop-blur-sm flex justify-center items-center z-50 p-0 sm:p-4">
+        <div className="fixed inset-0 bg-black bg-opacity-60 backdrop-blur-sm flex justify-center items-center z-50 p-0 sm:p-4">
             <div className="bg-white rounded-none sm:rounded-2xl shadow-2xl w-full max-w-2xl h-full sm:h-[90vh] flex flex-col">
                 <header className="p-4 border-b"><h2 className="text-xl sm:text-2xl font-bold text-gray-800">{formatDateForDisplay(day.date)}</h2><p className="text-gray-500">Log your activities for the day.</p></header>
                 <div className="flex-grow overflow-y-auto p-4">{currentActivities.length > 0 ? (<ul className="divide-y divide-gray-200">{currentActivities.map(activity => (<li key={activity.id} className="py-3">{editingActivityId === activity.id ? ( <div className="flex flex-col gap-2"> <div className="flex items-center gap-4"> <span className="text-2xl w-8 text-center">{taskIcons[activity.task] || '📌'}</span> <p className="font-semibold flex-grow">{activity.task}</p> </div> <div className="flex items-center gap-2 pl-12"> <input type="time" value={editedStartTime} onChange={e => setEditedStartTime(e.target.value)} className="w-full p-1 border border-gray-300 rounded-md"/> { !pointInTimeTasks.includes(activity.task) && <> <span>-</span> <input type="time" value={editedEndTime} onChange={e => setEditedEndTime(e.target.value)} className="w-full p-1 border border-gray-300 rounded-md"/> </> } </div> <div className="flex justify-end gap-2 mt-2"> <button onClick={handleCancelEditing} className="px-3 py-1 bg-gray-200 text-sm rounded-md">Cancel</button> <button onClick={handleUpdateActivity} className="px-3 py-1 bg-blue-600 text-white text-sm rounded-md">Save</button> </div> </div> ) : ( <div className="flex items-center justify-between"> <div className="flex items-center gap-4"> <span className="text-2xl w-8 text-center">{taskIcons[activity.task] || '📌'}</span> <div> <p className="font-semibold">{activity.task}</p> <p className="text-sm text-gray-500"> {activity.startTime} {activity.endTime && ` - ${activity.endTime}`} </p> </div> </div> <div className="flex items-center gap-2"> <span className="text-sm font-medium bg-gray-100 px-2 py-1 rounded-full">{calculateDuration(activity.startTime, activity.endTime)}</span> <button onClick={() => handleStartEditing(activity)} className="p-2 text-gray-500 hover:text-blue-600 hover:bg-gray-100 rounded-full"> <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L16.732 3.732z" /></svg> </button> <button onClick={() => handleDeleteActivity(activity.id)} className="p-2 text-gray-500 hover:text-red-600 hover:bg-gray-100 rounded-full"> <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg> </button> </div> </div> )}</li>))}</ul>) : (<div className="text-center py-10 flex flex-col items-center justify-center h-full"><svg xmlns="http://www.w3.org/2000/svg" className="mx-auto h-12 w-12 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg><p className="mt-4 text-gray-500 font-semibold">No activities logged for this day yet.</p><p className="text-gray-400 text-sm mt-1">Use the form below to add your first activity.</p></div>)}</div>
@@ -421,7 +464,7 @@ function DayCard({ day, onClick, onDelete }: DayCardProps) {
     const oddTaskPercentage = totalDayDuration > 0 ? totalOddTaskMinutes / totalDayDuration : 0;
 
     const workOffset = circumference * (1 - workPercentage);
-    const oddTaskOffset = circumference * (1 - oddTaskPercentage);
+    const oddTaskOffset = circumference * (1 - (workPercentage + oddTaskPercentage));
 
     const oddTaskRotation = -90 + workPercentage * 360;
 
@@ -503,7 +546,7 @@ function DayCard({ day, onClick, onDelete }: DayCardProps) {
                     )}
                      {sleepStatus && (
                          <p className={`text-sm font-semibold flex items-center ${sleepStatus.early ? 'text-green-600' : 'text-amber-600'}`}>
-                            <span className="text-lg mr-2">{sleepStatus.early ? '✅' : '🌙'}</span>
+                            <span className="text-lg mr-2">{sleepStatus.early ? '✅' : '�'}</span>
                             {sleepStatus.early ? `Good job! Slept at ${sleepStatus.time}.` : `Slept at ${sleepStatus.time}. Try for an earlier night!`}
                         </p>
                     )}
@@ -758,6 +801,17 @@ function NotificationControl({ permission, onRequestPermission }: { permission: 
     );
 }
 
+const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) {
+        return { title: "Good Morning!", subtitle: "Seize the day and make it yours." };
+    }
+    if (hour < 17) {
+        return { title: "Good Afternoon!", subtitle: "Keep up the great momentum." };
+    }
+    return { title: "Good Evening!", subtitle: "Time to reflect and unwind." };
+};
+
 
 export default function App() {
     const [days, setDays] = useState<Day[]>(() => {
@@ -775,6 +829,8 @@ export default function App() {
     const [selectedDay, setSelectedDay] = useState<Day | null>(null);
     const [dayToDelete, setDayToDelete] = useState<string | null>(null);
     const [notificationPermission, setNotificationPermission] = useState('default');
+    const [dailyPlan, setDailyPlan] = useState<string[] | null>(null);
+    const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
 
     useEffect(() => {
         if ('Notification' in window) {
@@ -836,20 +892,53 @@ export default function App() {
         }
     };
 
+    const handleGeneratePlan = async () => {
+        const toastId = toast.loading('Generating your daily plan...');
+        try {
+            const plan = await getAIDailyPlan(days, goals);
+            setDailyPlan(plan);
+            setIsPlanModalOpen(true);
+            toast.success('Your plan is ready!', { id: toastId });
+        } catch (error) {
+            toast.error('Could not generate a plan right now.', { id: toastId });
+        }
+    };
+
     const sortedDays = useMemo(() => {
-        return [...days].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        return [...days].sort((a: Day, b: Day) => new Date(b.date).getTime() - new Date(a.date).getTime());
     }, [days]);
+
+    const greeting = getGreeting();
 
     return (
         <div className="bg-gray-100 min-h-screen font-sans">
             <Toaster position="top-center" reverseOrder={false} />
             {selectedDay && <DayModal day={selectedDay} allDays={days} onClose={handleCloseModal} onSave={handleSaveDay} taskOptions={taskOptions} onAddNewTask={handleAddNewTask} />}
             <ConfirmationModal isOpen={!!dayToDelete} onClose={() => setDayToDelete(null)} onConfirm={handleConfirmDelete} message="Are you sure you want to delete this day's log? This action cannot be undone." />
+            {isPlanModalOpen && dailyPlan && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex justify-center items-center z-50 p-4">
+                    <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-md">
+                        <h3 className="text-xl font-bold mb-4 text-gray-800">Your AI-Generated Daily Plan 🚀</h3>
+                        <ul className="space-y-2">
+                            {dailyPlan.map((item, index) => (
+                                <li key={index} className="flex items-start gap-3">
+                                    <span className="text-indigo-500 font-bold">✓</span>
+                                    <span>{item}</span>
+                                </li>
+                            ))}
+                        </ul>
+                        <button onClick={() => setIsPlanModalOpen(false)} className="mt-6 w-full px-4 py-2 bg-indigo-600 text-white font-semibold rounded-md hover:bg-indigo-700">
+                            Got it!
+                        </button>
+                    </div>
+                </div>
+            )}
+
 
             <div className="container mx-auto p-4 sm:p-6 lg:p-8 relative">
                 <header className="text-center my-8">
-                    <h1 className="text-4xl sm:text-5xl font-extrabold text-gray-800">Home Screen - Dashboard</h1>
-                    <p className="text-lg text-gray-500 mt-2">An overview of your tracked days.</p>
+                    <h1 className="text-4xl sm:text-5xl font-extrabold text-gray-800">{greeting.title}</h1>
+                    <p className="text-lg text-gray-500 mt-2">{greeting.subtitle}</p>
                 </header>
                 
                 <div className="absolute top-0 right-4 sm:right-6 lg:right-8">
@@ -859,6 +948,10 @@ export default function App() {
                 <div className="space-y-8">
                     <AddNewDay onAddDay={handleAddDay} />
                     
+                    <button onClick={handleGeneratePlan} className="w-full p-4 bg-teal-500 text-white font-bold text-lg rounded-xl shadow-lg hover:bg-teal-600 transition-colors">
+                        🤖 Plan My Day with AI
+                    </button>
+
                     <Dashboard 
                         days={days}
                         taskOptions={taskOptions}

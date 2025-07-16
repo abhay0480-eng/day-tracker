@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import toast, { Toaster } from 'react-hot-toast';
 
 // --- Type Definitions ---
 interface Activity {
@@ -23,19 +24,20 @@ interface Goal {
 // --- Initial Data Configuration ---
 const initialTaskOptions: string[] = [
   'Wake up', 'Washroom', 'Exercise', 'Breakfast', 'Video call', 
-  'Office work', 'Rest', 'Lunch', 'Sleep', 'Read book', 'Call', 'Dinner'
+  'Office work', 'Rest', 'Lunch', 'Sleep', 'Read book', 'Call', 'Dinner',
+  'Watch TV', 'Editing youTube Video', 'Drink Water', 'Office Meeting Scrum', 'Take Bath', 'Self Learning'
 ];
 
 const taskIcons: { [key: string]: string } = {
   'Wake up': '☀️', 'Washroom': '🚽', 'Exercise': '🏋️', 'Breakfast': '🥞', 
-  'Video call': '💻', 'Office work': '💼', 'Rest': '🧘', 'Lunch': '🥪',
+  'Video call': '💻', 'Office work': '💼', 'Rest': '🧘', 'Lunch': '�',
   'Sleep': '😴', 'Read book': '📚', 'Call': '📞', 'Dinner': '🍽️',
+  'Watch TV': '📺', 'Editing youTube Video': '🎬', 'Drink Water': '💧', 
+  'Office Meeting Scrum': '🧑‍💻', 'Take Bath': '🛀', 'Self Learning': '🧠'
 };
 
 // --- AI Helper Functions ---
 const getAISuggestion = async (days: Day[], taskOptions: string[]): Promise<string | null> => {
-    console.log("getAISuggestion");
-    
     const recentDays = days.slice(-5);
     if (recentDays.length === 0) return null;
 
@@ -53,9 +55,7 @@ const getAISuggestion = async (days: Day[], taskOptions: string[]): Promise<stri
         const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         
         if (!response.ok) {
-            let errorBody = 'Could not read error body';
-            try { errorBody = await response.json(); } catch (e) { /* Ignore parsing error */ }
-            console.error("AI API request failed:", response.status, response.statusText, errorBody);
+            console.error("AI API request failed:", response.status, response.statusText);
             return null;
         }
 
@@ -70,12 +70,14 @@ const getAISuggestion = async (days: Day[], taskOptions: string[]): Promise<stri
 };
 
 const getAIWeeklySummary = async (days: Day[], taskOptions: string[]): Promise<string | null> => {
-    console.log('getAIWeeklySummary');
     const today = new Date();
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(today.getDate() - 7);
     const recentDays = days.filter(d => new Date(d.date) >= sevenDaysAgo && new Date(d.date) <= today);
-    if (recentDays.length < 2) return "Track a few more days to get your first weekly summary!";
+    if (recentDays.length < 2) {
+        toast.error("Track at least 2 days to get a summary.");
+        return null;
+    }
     const simplifiedLog = recentDays.map(d => ({ date: d.date, activities: d.activities.map(a => ({ task: a.task, startTime: a.startTime, duration: calculateDuration(a.startTime, a.endTime) })) }));
     const prompt = `You are a friendly and encouraging productivity coach. Analyze the user's activity log from the past week and provide a short, insightful summary (about 3-4 sentences). Highlight one positive achievement or consistent habit, and gently suggest one area for potential improvement or a pattern to be mindful of. The user's available tasks are: ${taskOptions.join(', ')}. Here is their log: ${JSON.stringify(simplifiedLog)}. Respond in a conversational and motivational tone. Use markdown for formatting, like bolding key tasks with **Task Name**.`;
 
@@ -86,20 +88,20 @@ const getAIWeeklySummary = async (days: Day[], taskOptions: string[]): Promise<s
         const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         
         if (!response.ok) {
-            let errorBody = 'Could not read error body';
-            try { errorBody = await response.json(); } catch (e) { /* Ignore parsing error */ }
-            console.error("AI API request failed:", response.status, response.statusText, errorBody);
-            return "Sorry, I couldn't generate a summary right now. Please try again later.";
+            console.error("AI API request failed:", response.status, response.statusText);
+            throw new Error("Could not generate summary.");
         }
 
         const result = await response.json();
         if (result.candidates && result.candidates.length > 0) return result.candidates[0].content.parts[0].text.trim();
-        return "Sorry, I couldn't generate a summary right now.";
-    } catch (error) { console.error("Error fetching AI summary:", error); return "An error occurred while fetching your weekly summary."; }
+        throw new Error("Could not generate summary.");
+    } catch (error) { 
+        console.error("Error fetching AI summary:", error); 
+        throw error;
+    }
 };
 
 const getAICoachingTip = async (goal: Goal, progress: number, daysLeft: number): Promise<string | null> => {
-    console.log('getAICoachingTip');
     const prompt = `You are a motivational AI coach. The user has a goal to perform the task "${goal.task}" ${goal.frequency} times a week. So far, they have completed it ${progress} times. There are ${daysLeft} days left in the week. Provide a short (2-3 sentences), encouraging, and actionable coaching tip. If they are on track, praise their effort. If they are behind, provide a gentle, motivational nudge without being critical.`;
 
     try {
@@ -109,20 +111,20 @@ const getAICoachingTip = async (goal: Goal, progress: number, daysLeft: number):
         const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         
         if (!response.ok) {
-            let errorBody = 'Could not read error body';
-            try { errorBody = await response.json(); } catch (e) { /* Ignore parsing error */ }
-            console.error("AI API request failed:", response.status, response.statusText, errorBody);
-            return "I'm having trouble thinking of a tip right now. Keep up the great work!";
+            console.error("AI API request failed:", response.status, response.statusText);
+            throw new Error("Could not get coaching tip.");
         }
 
         const result = await response.json();
         if (result.candidates && result.candidates.length > 0) return result.candidates[0].content.parts[0].text.trim();
-        return "I'm having trouble thinking of a tip right now. Keep up the great work!";
-    } catch (error) { console.error("Error fetching AI coaching tip:", error); return "An error occurred while fetching your coaching tip."; }
+        throw new Error("Could not get coaching tip.");
+    } catch (error) { 
+        console.error("Error fetching AI coaching tip:", error); 
+        throw error;
+    }
 };
 
 // --- Helper Functions ---
-
 const calculateGoalProgress = (goal: Goal, days: Day[]): number => {
     const today = new Date();
     const startOfWeek = new Date(today);
@@ -169,18 +171,27 @@ const parseTime = (timeString: string | null): Date | null => {
     return now;
 };
 
-const calculateDuration = (start: string | null, end: string | null): string => {
-    if (!start || !end) return '';
+const calculateDurationInMinutes = (start: string | null, end: string | null): number => {
+    if (!start || !end) return 0;
     const startDate = parseTime(start); const endDate = parseTime(end);
-    if (!startDate || !endDate) return '';
+    if (!startDate || !endDate) return 0;
     let diff = (endDate.getTime() - startDate.getTime()) / (1000 * 60);
     if (diff < 0) diff += 24 * 60;
-    if (diff === 0) return '0m';
-    const hours = Math.floor(diff / 60); const minutes = Math.round(diff % 60);
+    return diff;
+};
+
+const formatDuration = (minutes: number): string => {
+    if (minutes < 1) return '0m';
+    const hours = Math.floor(minutes / 60);
+    const mins = Math.round(minutes % 60);
     let duration = '';
     if (hours > 0) duration += `${hours}h `;
-    if (minutes > 0) duration += `${minutes}m`;
+    if (mins > 0) duration += `${mins}m`;
     return duration.trim();
+}
+
+const calculateDuration = (start: string | null, end: string | null): string => {
+   return formatDuration(calculateDurationInMinutes(start, end));
 };
 
 const formatTo12Hour = (time24: string): string => {
@@ -213,12 +224,12 @@ const formatDateForInput = (date: Date = new Date()): string => {
 };
 
 // --- Notification Hook ---
-const useNotificationReminder = (days: Day[] | undefined) => {
+const useNotificationReminder = (days: Day[] | undefined, permission: string) => {
     useEffect(() => {
-        if (!("Notification" in window)) { console.log("This browser does not support desktop notification"); return; }
-        Notification.requestPermission();
+        if (permission !== 'granted' || !days) return;
+
         const checkLastActivity = () => {
-            if (!days || days.length === 0 || Notification.permission !== 'granted') return;
+            if (days.length === 0) return;
             const todayStr = formatDateForInput(new Date());
             const today = days.find(d => d.date === todayStr);
             if (today && today.activities.length > 0) {
@@ -226,15 +237,15 @@ const useNotificationReminder = (days: Day[] | undefined) => {
                 const lastActivityTime = parseTime(lastActivity.startTime);
                 if (lastActivityTime) {
                     const hoursSinceLastActivity = (new Date().getTime() - lastActivityTime.getTime()) / (1000 * 60 * 60);
-                    if (hoursSinceLastActivity > 1) { new Notification("Day Tracker Reminder", { body: "Gentle reminder: What have you been up to for the last hour? Don't forget to log it!", icon: '/pwa-192x192.png' }); }
+                    if (hoursSinceLastActivity > 1) { new Notification("Day Tracker Reminder", { body: "Gentle reminder: What have you been up to for the last hour? Don't forget to log it!" }); }
                 }
             } else if (today && today.activities.length === 0) {
-                new Notification("Day Tracker Reminder", { body: "Ready to start your day? Log your first activity!", icon: '/pwa-192x192.png' });
+                new Notification("Day Tracker Reminder", { body: "Ready to start your day? Log your first activity!" });
             }
         };
         const intervalId = setInterval(checkLastActivity, 20 * 60 * 1000);
         return () => clearInterval(intervalId);
-    }, [days]);
+    }, [days, permission]);
 };
 
 // --- React Components ---
@@ -249,7 +260,7 @@ interface ConfirmationModalProps {
 function ConfirmationModal({ isOpen, onClose, onConfirm, message }: ConfirmationModalProps) {
     if (!isOpen) return null;
     return (
-        <div className="fixed inset-0 bg-opacity-50 backdrop-blur-sm flex justify-center items-center z-50 p-4">
+        <div className="fixed inset-0  bg-opacity-50 backdrop-blur-sm flex justify-center items-center z-50 p-4">
             <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-sm">
                 <h3 className="text-lg font-semibold mb-4">Confirm Deletion</h3>
                 <p className="mb-6">{message}</p>
@@ -280,24 +291,47 @@ function DayModal({ day, allDays, onClose, onSave, taskOptions, onAddNewTask }: 
     const [editingActivityId, setEditingActivityId] = useState<number | null>(null);
     const [editedStartTime, setEditedStartTime] = useState('');
     const [editedEndTime, setEditedEndTime] = useState('');
-    const showEndTime = task !== 'Wake up' && task !== 'Sleep';
+
+    const pointInTimeTasks = ['Wake up', 'Sleep', 'Drink Water'];
+    const showEndTime = !pointInTimeTasks.includes(task);
+
     useEffect(() => {
         document.body.style.overflow = 'hidden';
         const fetchSuggestion = async () => { if (day.date === formatDateForInput() && day.activities.length === 0) { setIsSuggesting(true); const suggestion = await getAISuggestion(allDays, taskOptions); if (suggestion) { setTask(suggestion); } setIsSuggesting(false); } };
         fetchSuggestion();
         return () => { document.body.style.overflow = 'auto'; };
     }, [day, allDays, taskOptions]);
-    const handleAddActivity = (e: React.FormEvent) => { e.preventDefault(); const trimmedTask = task.trim(); if (trimmedTask === '') return; onAddNewTask(trimmedTask); const newActivity: Activity = { id: Date.now(), task: trimmedTask, startTime: formatTo12Hour(startTime), endTime: showEndTime ? formatTo12Hour(endTime) : null }; const updatedActivities = [...currentActivities, newActivity].sort((a, b) => { const timeA = parseTime(a.startTime); const timeB = parseTime(b.startTime); if (!timeA || !timeB) return 0; return timeA.getTime() - timeB.getTime(); }); setCurrentActivities(updatedActivities); setTask(taskOptions[0] || ''); };
-    const handleDeleteActivity = (id: number) => { setCurrentActivities(prev => prev.filter(act => act.id !== id)); };
+
+    const handleAddActivity = (e: React.FormEvent) => { e.preventDefault(); const trimmedTask = task.trim(); if (trimmedTask === '') return; onAddNewTask(trimmedTask); const newActivity: Activity = { id: Date.now(), task: trimmedTask, startTime: formatTo12Hour(startTime), endTime: showEndTime ? formatTo12Hour(endTime) : null }; const updatedActivities = [...currentActivities, newActivity].sort((a: Activity, b: Activity) => { const timeA = parseTime(a.startTime); const timeB = parseTime(b.startTime); if (!timeA || !timeB) return 0; return timeA.getTime() - timeB.getTime(); }); setCurrentActivities(updatedActivities); setTask(taskOptions[0] || ''); toast.success(`Added: ${trimmedTask}`); };
+    const handleDeleteActivity = (id: number) => { const taskToDelete = currentActivities.find(act => act.id === id); setCurrentActivities(prev => prev.filter(act => act.id !== id)); if(taskToDelete) toast.error(`Removed: ${taskToDelete.task}`); };
     const handleStartEditing = (activity: Activity) => { setEditingActivityId(activity.id); setEditedStartTime(convertTo24Hour(activity.startTime)); setEditedEndTime(convertTo24Hour(activity.endTime)); };
     const handleCancelEditing = () => { setEditingActivityId(null); setEditedStartTime(''); setEditedEndTime(''); };
-    const handleUpdateActivity = () => { if (editingActivityId === null) return; const updatedActivities = currentActivities.map(act => { if (act.id === editingActivityId) { const showEnd = act.task !== 'Wake up' && act.task !== 'Sleep'; return { ...act, startTime: formatTo12Hour(editedStartTime), endTime: showEnd ? formatTo12Hour(editedEndTime) : null, }; } return act; }).sort((a, b) => { const timeA = parseTime(a.startTime); const timeB = parseTime(b.startTime); if (!timeA || !timeB) return 0; return timeA.getTime() - timeB.getTime(); }); setCurrentActivities(updatedActivities); handleCancelEditing(); };
-    const handleSave = () => { onSave({ ...day, activities: currentActivities }); onClose(); };
+    
+    const handleUpdateActivity = () => { 
+        if (editingActivityId === null) return; 
+        const updatedActivities = currentActivities.map(act => { 
+            if (act.id === editingActivityId) { 
+                const showEnd = !pointInTimeTasks.includes(act.task); 
+                return { ...act, startTime: formatTo12Hour(editedStartTime), endTime: showEnd ? formatTo12Hour(editedEndTime) : null, }; 
+            } 
+            return act; 
+        }).sort((a: Activity, b: Activity) => { 
+            const timeA = parseTime(a.startTime); 
+            const timeB = parseTime(b.startTime); 
+            if (!timeA || !timeB) return 0; 
+            return timeA.getTime() - timeB.getTime(); 
+        }); 
+        setCurrentActivities(updatedActivities); 
+        handleCancelEditing(); 
+    };
+
+    const handleSave = () => { onSave({ ...day, activities: currentActivities }); onClose(); toast.success('Day saved successfully!'); };
+    
     return (
         <div className="fixed inset-0  bg-opacity-60 backdrop-blur-sm flex justify-center items-center z-50 p-0 sm:p-4">
             <div className="bg-white rounded-none sm:rounded-2xl shadow-2xl w-full max-w-2xl h-full sm:h-[90vh] flex flex-col">
                 <header className="p-4 border-b"><h2 className="text-xl sm:text-2xl font-bold text-gray-800">{formatDateForDisplay(day.date)}</h2><p className="text-gray-500">Log your activities for the day.</p></header>
-                <div className="flex-grow overflow-y-auto p-4">{currentActivities.length > 0 ? (<ul className="divide-y divide-gray-200">{currentActivities.map(activity => (<li key={activity.id} className="py-3">{editingActivityId === activity.id ? ( <div className="flex flex-col gap-2"> <div className="flex items-center gap-4"> <span className="text-2xl w-8 text-center">{taskIcons[activity.task] || '📌'}</span> <p className="font-semibold flex-grow">{activity.task}</p> </div> <div className="flex items-center gap-2 pl-12"> <input type="time" value={editedStartTime} onChange={e => setEditedStartTime(e.target.value)} className="w-full p-1 border border-gray-300 rounded-md"/> { (activity.task !== 'Wake up' && activity.task !== 'Sleep') && <> <span>-</span> <input type="time" value={editedEndTime} onChange={e => setEditedEndTime(e.target.value)} className="w-full p-1 border border-gray-300 rounded-md"/> </> } </div> <div className="flex justify-end gap-2 mt-2"> <button onClick={handleCancelEditing} className="px-3 py-1 bg-gray-200 text-sm rounded-md">Cancel</button> <button onClick={handleUpdateActivity} className="px-3 py-1 bg-blue-600 text-white text-sm rounded-md">Save</button> </div> </div> ) : ( <div className="flex items-center justify-between"> <div className="flex items-center gap-4"> <span className="text-2xl w-8 text-center">{taskIcons[activity.task] || '📌'}</span> <div> <p className="font-semibold">{activity.task}</p> <p className="text-sm text-gray-500"> {activity.startTime} {activity.endTime && ` - ${activity.endTime}`} </p> </div> </div> <div className="flex items-center gap-2"> <span className="text-sm font-medium bg-gray-100 px-2 py-1 rounded-full">{calculateDuration(activity.startTime, activity.endTime)}</span> <button onClick={() => handleStartEditing(activity)} className="p-2 text-gray-500 hover:text-blue-600 hover:bg-gray-100 rounded-full"> <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L16.732 3.732z" /></svg> </button> <button onClick={() => handleDeleteActivity(activity.id)} className="p-2 text-gray-500 hover:text-red-600 hover:bg-gray-100 rounded-full"> <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg> </button> </div> </div> )}</li>))}</ul>) : (<div className="text-center py-10 flex flex-col items-center justify-center h-full"><svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg><p className="mt-4 text-gray-500 font-semibold">No activities logged for this day yet.</p><p className="text-gray-400 text-sm mt-1">Use the form below to add your first activity.</p></div>)}</div>
+                <div className="flex-grow overflow-y-auto p-4">{currentActivities.length > 0 ? (<ul className="divide-y divide-gray-200">{currentActivities.map(activity => (<li key={activity.id} className="py-3">{editingActivityId === activity.id ? ( <div className="flex flex-col gap-2"> <div className="flex items-center gap-4"> <span className="text-2xl w-8 text-center">{taskIcons[activity.task] || '📌'}</span> <p className="font-semibold flex-grow">{activity.task}</p> </div> <div className="flex items-center gap-2 pl-12"> <input type="time" value={editedStartTime} onChange={e => setEditedStartTime(e.target.value)} className="w-full p-1 border border-gray-300 rounded-md"/> { !pointInTimeTasks.includes(activity.task) && <> <span>-</span> <input type="time" value={editedEndTime} onChange={e => setEditedEndTime(e.target.value)} className="w-full p-1 border border-gray-300 rounded-md"/> </> } </div> <div className="flex justify-end gap-2 mt-2"> <button onClick={handleCancelEditing} className="px-3 py-1 bg-gray-200 text-sm rounded-md">Cancel</button> <button onClick={handleUpdateActivity} className="px-3 py-1 bg-blue-600 text-white text-sm rounded-md">Save</button> </div> </div> ) : ( <div className="flex items-center justify-between"> <div className="flex items-center gap-4"> <span className="text-2xl w-8 text-center">{taskIcons[activity.task] || '📌'}</span> <div> <p className="font-semibold">{activity.task}</p> <p className="text-sm text-gray-500"> {activity.startTime} {activity.endTime && ` - ${activity.endTime}`} </p> </div> </div> <div className="flex items-center gap-2"> <span className="text-sm font-medium bg-gray-100 px-2 py-1 rounded-full">{calculateDuration(activity.startTime, activity.endTime)}</span> <button onClick={() => handleStartEditing(activity)} className="p-2 text-gray-500 hover:text-blue-600 hover:bg-gray-100 rounded-full"> <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L16.732 3.732z" /></svg> </button> <button onClick={() => handleDeleteActivity(activity.id)} className="p-2 text-gray-500 hover:text-red-600 hover:bg-gray-100 rounded-full"> <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg> </button> </div> </div> )}</li>))}</ul>) : (<div className="text-center py-10 flex flex-col items-center justify-center h-full"><svg xmlns="http://www.w3.org/2000/svg" className="mx-auto h-12 w-12 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg><p className="mt-4 text-gray-500 font-semibold">No activities logged for this day yet.</p><p className="text-gray-400 text-sm mt-1">Use the form below to add your first activity.</p></div>)}</div>
                 <form onSubmit={handleAddActivity} className="p-4 bg-gray-50 border-t flex flex-col sm:flex-row sm:items-end gap-4"><div className="flex-grow"><label htmlFor="task-input" className="block text-sm font-medium text-gray-700 mb-1">Task</label><input id="task-input" list="task-options" value={task} onChange={e => setTask(e.target.value)} placeholder={isSuggesting ? "AI is suggesting..." : "Type or select a task"} className="w-full p-2 border border-gray-300 rounded-md" disabled={isSuggesting} /><datalist id="task-options">{taskOptions.map(opt => <option key={opt} value={opt} />)}</datalist></div><div><label className="block text-sm font-medium text-gray-700 mb-1">{showEndTime ? 'Start Time' : 'Time'}</label><input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} className="w-full p-2 border border-gray-300 rounded-md"/></div>{showEndTime && (<div><label className="block text-sm font-medium text-gray-700 mb-1">End Time</label><input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} className="w-full p-2 border border-gray-300 rounded-md"/></div>)}<button type="submit" className="w-full sm:w-auto px-4 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 self-end">Add</button></form>
                 <footer className="p-4 flex flex-col sm:flex-row justify-end gap-4 border-t"><button onClick={onClose} className="px-6 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300">Cancel</button><button onClick={handleSave} className="px-6 py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700">Add to Dashboard</button></footer>
             </div>
@@ -312,16 +346,175 @@ interface DayCardProps {
 }
 
 function DayCard({ day, onClick, onDelete }: DayCardProps) {
-    const summary = useMemo(() => { const totalActivities = day.activities.length; const uniqueTasks = [...new Set(day.activities.map(a => a.task))].slice(0, 3).join(', '); return { totalActivities, uniqueTasks }; }, [day.activities]);
-    const handleDeleteClick = (e: React.MouseEvent) => { e.stopPropagation(); onDelete(day.date); };
+    const [isRingHovered, setIsRingHovered] = useState(false);
+
+    const { totalWorkAndGrowthMinutes, totalOddTaskMinutes, totalUnaccountedMinutes, totalDayDuration } = useMemo(() => {
+        const workAndGrowthTasks = ['Office work', 'Video call', 'Office Meeting Scrum', 'Read book', 'Self Learning', 'Exercise'];
+        const pointInTimeTasks = ['Wake up', 'Sleep', 'Drink Water'];
+        let totalWorkAndGrowthMinutes = 0;
+        let totalOddTaskMinutes = 0;
+        let totalLoggedMinutes = 0;
+
+        const sortedActivities = [...day.activities].sort((a: Activity, b: Activity) => (parseTime(a.startTime)?.getTime() || 0) - (parseTime(b.startTime)?.getTime() || 0));
+
+        sortedActivities.forEach(activity => {
+            const duration = calculateDurationInMinutes(activity.startTime, activity.endTime);
+            if (duration > 0) {
+                if (workAndGrowthTasks.includes(activity.task)) {
+                    totalWorkAndGrowthMinutes += duration;
+                } else if (!pointInTimeTasks.includes(activity.task)) {
+                    totalOddTaskMinutes += duration;
+                }
+                totalLoggedMinutes += duration;
+            }
+        });
+        
+        const firstActivity = sortedActivities[0];
+        const lastActivity = sortedActivities[sortedActivities.length - 1];
+
+        let totalDayDuration = 0;
+        let totalUnaccountedMinutes = 0;
+
+        if (firstActivity && lastActivity) {
+            const dayStartTime = parseTime(firstActivity.startTime);
+            const dayEndTime = parseTime(lastActivity.endTime || lastActivity.startTime);
+            if(dayStartTime && dayEndTime) {
+                totalDayDuration = calculateDurationInMinutes(firstActivity.startTime, lastActivity.endTime || lastActivity.startTime);
+                totalUnaccountedMinutes = totalDayDuration - totalLoggedMinutes;
+            }
+        }
+
+        return { totalWorkAndGrowthMinutes, totalOddTaskMinutes, totalUnaccountedMinutes: Math.max(0, totalUnaccountedMinutes), totalDayDuration };
+    }, [day.activities]);
+
+
+    const wakeUpStatus = useMemo(() => {
+        const wakeUpActivity = day.activities.find(a => a.task === 'Wake up');
+        if (!wakeUpActivity || !wakeUpActivity.startTime) return null;
+        const wakeUpTime = parseTime(wakeUpActivity.startTime);
+        if (!wakeUpTime) return null;
+        return {
+            early: wakeUpTime.getHours() < 6,
+            time: wakeUpActivity.startTime
+        };
+    }, [day.activities]);
+
+    const sleepStatus = useMemo(() => {
+        const sleepActivity = day.activities.find(a => a.task === 'Sleep');
+        if (!sleepActivity || !sleepActivity.startTime) return null;
+        const sleepTime = parseTime(sleepActivity.startTime);
+        if (!sleepTime) return null;
+        return {
+            early: sleepTime.getHours() < 22, // 10 PM
+            time: sleepActivity.startTime
+        };
+    }, [day.activities]);
+
+    const handleDeleteClick = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        onDelete(day.date);
+    };
+
+    const radius = 30;
+    const circumference = 2 * Math.PI * radius;
+    const workPercentage = totalDayDuration > 0 ? totalWorkAndGrowthMinutes / totalDayDuration : 0;
+    const oddTaskPercentage = totalDayDuration > 0 ? totalOddTaskMinutes / totalDayDuration : 0;
+
+    const workOffset = circumference * (1 - workPercentage);
+    const oddTaskOffset = circumference * (1 - oddTaskPercentage);
+    const idleOffset = circumference * (1 - (1 - workPercentage - oddTaskPercentage));
+
+    const oddTaskRotation = -90 + workPercentage * 360;
+    const idleRotation = -90 + (workPercentage + oddTaskPercentage) * 360;
+
     return (
-        <div onClick={onClick} className="bg-white rounded-xl shadow-lg hover:shadow-xl hover:-translate-y-1 transition-all duration-300 cursor-pointer p-6 flex flex-col justify-between relative group">
-            <div className="absolute top-2 right-2 flex gap-1 lg:opacity-0 group-hover:opacity-100 transition-opacity"><button onClick={handleDeleteClick} className="p-2 rounded-full bg-red-100 text-red-600  lg:hover:bg-red-200" aria-label="Delete day"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button></div>
-            <div><h3 className="font-bold text-lg text-gray-800">{formatDateForDisplay(day.date)}</h3><p className="text-sm text-gray-500 mt-2">{summary.totalActivities} activities logged.</p></div>
-            <div className="mt-4 pt-4 border-t border-gray-100"><p className="text-sm text-gray-600 truncate">Tasks include: {summary.uniqueTasks}</p></div>
+        <div 
+            onClick={onClick} 
+            className="bg-white rounded-xl shadow-lg hover:shadow-xl hover:-translate-y-1 transition-all duration-300 cursor-pointer p-6 flex flex-col justify-between relative group"
+        >
+            <div className="absolute top-2 right-2 flex gap-1 lg:opacity-0 group-hover:opacity-100 transition-opacity">
+                <button onClick={handleDeleteClick} className="p-2 rounded-full bg-red-100 text-red-600 lg:hover:bg-red-200" aria-label="Delete day">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                </button>
+            </div>
+            <div>
+                <h3 className="font-bold text-lg text-gray-800">{formatDateForDisplay(day.date)}</h3>
+                 <div 
+                    className="relative flex items-center justify-center mt-4"
+                    onMouseEnter={() => setIsRingHovered(true)}
+                    onMouseLeave={() => setIsRingHovered(false)}
+                >
+                    <div className="relative w-28 h-28">
+                        <svg className="w-full h-full" viewBox="0 0 70 70">
+                            <circle cx="35" cy="35" r={radius} className="stroke-gray-200" strokeWidth="8" fill="transparent" />
+                            <circle
+                                cx="35"
+                                cy="35"
+                                r={radius}
+                                className="stroke-indigo-500"
+                                strokeWidth="8"
+                                fill="transparent"
+                                strokeDasharray={circumference}
+                                strokeDashoffset={workOffset}
+                                strokeLinecap="round"
+                                transform="rotate(-90 35 35)"
+                            />
+                             <circle
+                                cx="35"
+                                cy="35"
+                                r={radius}
+                                className="stroke-teal-500"
+                                strokeWidth="8"
+                                fill="transparent"
+                                strokeDasharray={circumference}
+                                strokeDashoffset={oddTaskOffset}
+                                strokeLinecap="round"
+                                transform={`rotate(${oddTaskRotation} 35 35)`}
+                            />
+                        </svg>
+                        <div className="absolute inset-0 flex items-center justify-center">
+                            {isRingHovered ? (
+                                <div className="text-center">
+                                    <p className="text-xs font-semibold text-indigo-600">Work/Growth</p>
+                                    <p className="text-sm font-bold text-gray-800">{formatDuration(totalWorkAndGrowthMinutes)}</p>
+                                    <p className="text-xs font-semibold text-teal-600 mt-1">Odd Tasks</p>
+                                    <p className="text-sm font-bold text-gray-800">{formatDuration(totalOddTaskMinutes)}</p>
+                                    <p className="text-xs font-semibold text-gray-500 mt-1">Idle</p>
+                                    <p className="text-sm font-bold text-gray-800">{formatDuration(totalUnaccountedMinutes)}</p>
+                                </div>
+                            ) : (
+                                <div className="text-center">
+                                     <p className="text-xl font-bold text-gray-800">{formatDuration(totalWorkAndGrowthMinutes)}</p>
+                                     <p className="text-xs font-semibold text-indigo-600">PRODUCTIVE</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            {(wakeUpStatus || sleepStatus) && (
+                 <div className="mt-4 pt-4 border-t border-gray-100 space-y-2">
+                    {wakeUpStatus && (
+                        <p className={`text-sm font-semibold flex items-center ${wakeUpStatus.early ? 'text-green-600' : 'text-amber-600'}`}>
+                            <span className="text-lg mr-2">{wakeUpStatus.early ? '🎉' : '🌅'}</span>
+                            {wakeUpStatus.early ? `Early bird! Woke up at ${wakeUpStatus.time}.` : `Woke up at ${wakeUpStatus.time}. Aim for an earlier start!`}
+                        </p>
+                    )}
+                     {sleepStatus && (
+                         <p className={`text-sm font-semibold flex items-center ${sleepStatus.early ? 'text-green-600' : 'text-amber-600'}`}>
+                            <span className="text-lg mr-2">{sleepStatus.early ? '✅' : '🌙'}</span>
+                            {sleepStatus.early ? `Good job! Slept at ${sleepStatus.time}.` : `Slept at ${sleepStatus.time}. Try for an earlier night!`}
+                        </p>
+                    )}
+                </div>
+            )}
         </div>
     );
 }
+
 
 interface AddNewDayProps {
     onAddDay: (date: string) => void;
@@ -341,21 +534,26 @@ function AddNewDay({ onAddDay }: AddNewDayProps) {
 
 interface StreakCounterProps {
     days: Day[];
-    taskOptions: string[];
 }
 
-function StreakCounter({ days, taskOptions }: StreakCounterProps) {
+function StreakCounter({ days }: StreakCounterProps) {
+    const streakTasks = ['Exercise', 'Read book', 'Self Learning'];
     const [selectedTask, setSelectedTask] = useState<string>('Overall');
     const [isVisible, setIsVisible] = useState(false);
     useEffect(() => { setIsVisible(true); }, []);
     const { currentStreak, longestStreak } = useMemo(() => { const taskToCalculate = selectedTask === 'Overall' ? null : selectedTask; return calculateStreaks(days, taskToCalculate); }, [days, selectedTask]);
-    const topStreak = useMemo(() => { let top = { task: '', streak: 0 }; if (days.length === 0) return null; for (const task of taskOptions) { const { longestStreak } = calculateStreaks(days, task); if (longestStreak > top.streak) { top = { task, streak: longestStreak }; } } return top.streak > 0 ? top : null; }, [days, taskOptions]);
+    const topStreak = useMemo(() => { let top = { task: '', streak: 0 }; if (days.length === 0) return null; for (const task of streakTasks) { const { longestStreak } = calculateStreaks(days, task); if (longestStreak > top.streak) { top = { task, streak: longestStreak }; } } return top.streak > 0 ? top : null; }, [days]);
     const streakTitle = selectedTask === 'Overall' ? 'Overall Consistency' : `${selectedTask} Streak`;
     const streakIcon = selectedTask === 'Overall' ? '🔥' : (taskIcons[selectedTask] || '🎯');
     return (
         <div className={`p-6 bg-gradient-to-br from-orange-400 to-red-500 text-white rounded-xl shadow-lg flex flex-col gap-4 transition-all duration-500 ease-in-out transform ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-4"><div className="flex items-center gap-4"><span className="text-5xl animate-pulse">{streakIcon}</span><div className="text-center sm:text-left"><h3 className="text-xl font-bold">{streakTitle}</h3><p className="opacity-90">Keep the momentum going!</p></div></div><div className="flex gap-6 sm:gap-10 text-center"><div><p key={`current-${currentStreak}`} className="text-4xl font-extrabold animate-pop-in">{currentStreak}</p><p className="font-semibold opacity-90 text-sm">Current</p></div><div><p key={`longest-${longestStreak}`} className="text-4xl font-extrabold animate-pop-in">{longestStreak}</p><p className="font-semibold opacity-90 text-sm">Longest</p></div></div></div>
-            <div className="pt-4 border-t border-white/20"><label htmlFor="streak-select" className="block text-sm font-medium text-white mb-2">View streak for:</label><select id="streak-select" value={selectedTask} onChange={e => setSelectedTask(e.target.value)} className="w-full p-2 rounded-md bg-white/20 text-white border-transparent focus:ring-2 focus:ring-white"><option value="Overall">Overall</option>{taskOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}</select></div>
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4"><div className="flex items-center gap-4"><span className="text-5xl">{streakIcon}</span><div className="text-center sm:text-left"><h3 className="text-xl font-bold">{streakTitle}</h3><p className="opacity-90">Keep the momentum going!</p></div></div><div className="flex gap-6 sm:gap-10 text-center"><div><p className="text-4xl font-extrabold">{currentStreak}</p><p className="font-semibold opacity-90 text-sm">Current</p></div><div><p className="text-4xl font-extrabold">{longestStreak}</p><p className="font-semibold opacity-90 text-sm">Longest</p></div></div></div>
+            <div className="pt-4 border-t border-white/20"><label htmlFor="streak-select" className="block text-sm font-medium text-white mb-2">View streak for:</label>
+                <select id="streak-select" value={selectedTask} onChange={e => setSelectedTask(e.target.value)} className="w-full p-2 rounded-md bg-white/20 text-white border-transparent focus:ring-2 focus:ring-white">
+                    <option value="Overall">Overall</option>
+                    {streakTasks.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                </select>
+            </div>
             {topStreak && (<div className="mt-2 text-center transition-opacity duration-300"><p className="text-sm font-semibold text-white/90">🏆 Top Streak: <span className="font-bold">{topStreak.task}</span> ({topStreak.streak} days)</p></div>)}
         </div>
     );
@@ -369,7 +567,19 @@ interface WeeklySummaryProps {
 function WeeklySummary({ days, taskOptions }: WeeklySummaryProps) {
     const [summary, setSummary] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
-    const handleAnalyzeClick = async () => { setIsLoading(true); const result = await getAIWeeklySummary(days, taskOptions); setSummary(result); setIsLoading(false); };
+    const handleAnalyzeClick = async () => { 
+        setIsLoading(true);
+        const toastId = toast.loading('Analyzing your week...');
+        try {
+            const result = await getAIWeeklySummary(days, taskOptions); 
+            setSummary(result);
+            toast.success('Summary generated!', { id: toastId });
+        } catch (error) {
+            toast.error('Could not generate summary.', { id: toastId });
+        } finally {
+            setIsLoading(false);
+        }
+    };
     const renderMarkdown = (text: string) => { const html = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br />'); return { __html: html }; };
     return (
         <div className="p-6 bg-white rounded-xl shadow-lg">
@@ -404,13 +614,20 @@ function GoalCoaching({ goals, onAddGoal, onDeleteGoal, days, taskOptions }: Goa
     
     const handleGetCoachingTip = async (goal: Goal) => {
         setIsLoadingTip(goal.id);
-        const progress = calculateGoalProgress(goal, days);
-        const daysLeft = 7 - new Date().getDay();
-        const tip = await getAICoachingTip(goal, progress, daysLeft);
-        if (tip) {
-            setCoachingTips(prev => ({ ...prev, [goal.id]: tip }));
+        const toastId = toast.loading('Getting your tip...');
+        try {
+            const progress = calculateGoalProgress(goal, days);
+            const daysLeft = 7 - new Date().getDay();
+            const tip = await getAICoachingTip(goal, progress, daysLeft);
+            if (tip) {
+                setCoachingTips(prev => ({ ...prev, [goal.id]: tip }));
+                toast.success("Here's a tip!", { id: toastId });
+            }
+        } catch(e) {
+            toast.error("Could not get coaching tip.", { id: toastId });
+        } finally {
+            setIsLoadingTip(null);
         }
-        setIsLoadingTip(null);
     };
 
     return (
@@ -475,6 +692,75 @@ function GoalCoaching({ goals, onAddGoal, onDeleteGoal, days, taskOptions }: Goa
     );
 }
 
+// New Dashboard Component
+function Dashboard({ days, taskOptions, goals, onAddGoal, onDeleteGoal }: { days: Day[], taskOptions: string[], goals: Goal[], onAddGoal: (goal: Omit<Goal, 'id'>) => void, onDeleteGoal: (id: number) => void }) {
+  const [activeTab, setActiveTab] = useState('streaks');
+
+  const renderContent = () => {
+    switch (activeTab) {
+      case 'insights':
+        return <WeeklySummary days={days} taskOptions={taskOptions} />;
+      case 'goals':
+        return <GoalCoaching goals={goals} onAddGoal={onAddGoal} onDeleteGoal={onDeleteGoal} days={days} taskOptions={taskOptions} />;
+      case 'streaks':
+      default:
+        return days.length > 0 ? <StreakCounter days={days} /> : <div className="text-center py-10"><p className="text-gray-500">Track your first day to see your streaks!</p></div>;
+    }
+  };
+
+  const TabButton = ({ tabId, label, icon }: { tabId: string, label: string, icon: string }) => (
+    <button
+      onClick={() => setActiveTab(tabId)}
+      className={`flex-1 sm:flex-none px-4 py-3 text-sm sm:text-base font-bold text-center transition-colors duration-200 ${
+        activeTab === tabId
+          ? 'text-indigo-600 border-b-4 border-indigo-600 bg-indigo-50'
+          : 'text-gray-500 hover:text-gray-800 hover:bg-gray-100 border-b-4 border-transparent'
+      }`}
+    >
+      <span className="mr-2">{icon}</span>
+      {label}
+    </button>
+  );
+
+  return (
+    <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+      <div className="flex border-b border-gray-200">
+        <TabButton tabId="streaks" label="Streaks" icon="🔥" />
+        <TabButton tabId="insights" label="Insights" icon="📊" />
+        <TabButton tabId="goals" label="Goals" icon="🎯" />
+      </div>
+      <div className="p-0">
+        {renderContent()}
+      </div>
+    </div>
+  );
+}
+
+function NotificationControl({ permission, onRequestPermission }: { permission: string, onRequestPermission: () => void }) {
+    const isEnabled = permission === 'granted';
+    const isDisabled = permission === 'denied';
+
+    return (
+        <div className="flex items-center gap-3">
+            <span className={`text-sm font-semibold ${isDisabled ? 'text-gray-400' : 'text-gray-600'}`}>
+                Reminders
+            </span>
+            <label htmlFor="notification-toggle" className="relative inline-flex items-center cursor-pointer">
+                <input 
+                    type="checkbox" 
+                    id="notification-toggle" 
+                    className="sr-only peer" 
+                    checked={isEnabled}
+                    disabled={isDisabled}
+                    onChange={onRequestPermission}
+                />
+                <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-focus:ring-2 peer-focus:ring-indigo-300 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+            </label>
+        </div>
+    );
+}
+
+
 export default function App() {
     const [days, setDays] = useState<Day[]>(() => {
         try { const savedDays = localStorage.getItem('dayTrackerData'); return savedDays ? JSON.parse(savedDays) : []; } catch (error) { console.error("Could not parse data from localStorage", error); return []; }
@@ -490,8 +776,15 @@ export default function App() {
 
     const [selectedDay, setSelectedDay] = useState<Day | null>(null);
     const [dayToDelete, setDayToDelete] = useState<string | null>(null);
+    const [notificationPermission, setNotificationPermission] = useState('default');
 
-    useNotificationReminder(days);
+    useEffect(() => {
+        if ('Notification' in window) {
+            setNotificationPermission(Notification.permission);
+        }
+    }, []);
+
+    useNotificationReminder(days, notificationPermission);
 
     useEffect(() => { localStorage.setItem('dayTrackerData', JSON.stringify(days)); }, [days]);
     useEffect(() => { localStorage.setItem('dayTrackerTasks', JSON.stringify(taskOptions)); }, [taskOptions]);
@@ -503,21 +796,24 @@ export default function App() {
     const handleSaveDay = (updatedDay: Day) => {
         setDays(prevDays => {
             const dayExists = prevDays.some(d => d.date === updatedDay.date);
-            if (dayExists) { return prevDays.map(d => d.date === updatedDay.date ? updatedDay : d).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()); }
-            else { return [...prevDays, updatedDay].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()); }
+            if (dayExists) { return prevDays.map(d => d.date === updatedDay.date ? updatedDay : d).sort((a: Day, b: Day) => new Date(b.date).getTime() - new Date(a.date).getTime()); }
+            else { return [...prevDays, updatedDay].sort((a: Day, b: Day) => new Date(b.date).getTime() - new Date(a.date).getTime()); }
         });
     };
     
     const handleAddDay = (date: string) => {
         const dayExists = days.some(d => d.date === date);
-        if (dayExists) { alert("This day already exists on your dashboard."); return; }
+        if (dayExists) { 
+            toast.error("This day already exists on your dashboard.");
+            return; 
+        }
         const newDay: Day = { date: date, activities: [] };
         handleOpenModal(newDay);
     };
 
     const handleDeleteRequest = (date: string) => { setDayToDelete(date); };
-    const handleConfirmDelete = () => { if (dayToDelete) { setDays(prevDays => prevDays.filter(day => day.date !== dayToDelete)); setDayToDelete(null); } };
-    const handleAddNewTask = (newTask: string) => { if (!taskOptions.includes(newTask)) { setTaskOptions(prev => [...prev, newTask]); } };
+    const handleConfirmDelete = () => { if (dayToDelete) { setDays(prevDays => prevDays.filter(day => day.date !== dayToDelete)); setDayToDelete(null); toast.success('Day deleted!'); } };
+    const handleAddNewTask = (newTask: string) => { if (!taskOptions.includes(newTask)) { setTaskOptions(prev => [...prev, newTask]); toast.success(`New task added: ${newTask}`); } };
     
     const handleAddGoal = (newGoal: Omit<Goal, 'id'>) => {
         const goalToAdd: Goal = { ...newGoal, id: Date.now() };
@@ -525,7 +821,21 @@ export default function App() {
     };
 
     const handleDeleteGoal = (id: number) => {
+        const goalToRemove = goals.find(g => g.id === id);
         setGoals(prev => prev.filter(g => g.id !== id));
+        if(goalToRemove) toast.error(`Goal removed: ${goalToRemove.task}`);
+    };
+    
+    const handleRequestNotificationPermission = async () => {
+        if ('Notification' in window) {
+            const permission = await Notification.requestPermission();
+            setNotificationPermission(permission);
+            if(permission === 'granted') {
+                toast.success("Reminder notifications enabled!");
+            } else {
+                toast.error("Reminder notifications are disabled.");
+            }
+        }
     };
 
     const sortedDays = useMemo(() => {
@@ -534,23 +844,30 @@ export default function App() {
 
     return (
         <div className="bg-gray-100 min-h-screen font-sans">
+            <Toaster position="top-center" reverseOrder={false} />
             {selectedDay && <DayModal day={selectedDay} allDays={days} onClose={handleCloseModal} onSave={handleSaveDay} taskOptions={taskOptions} onAddNewTask={handleAddNewTask} />}
             <ConfirmationModal isOpen={!!dayToDelete} onClose={() => setDayToDelete(null)} onConfirm={handleConfirmDelete} message="Are you sure you want to delete this day's log? This action cannot be undone." />
 
-            <div className="container mx-auto p-4 sm:p-6 lg:p-8">
+            <div className="container mx-auto p-4 sm:p-6 lg:p-8 relative">
                 <header className="text-center my-8">
                     <h1 className="text-4xl sm:text-5xl font-extrabold text-gray-800">Home Screen - Dashboard</h1>
                     <p className="text-lg text-gray-500 mt-2">An overview of your tracked days.</p>
                 </header>
+                
+                <div className="absolute top-0 right-4 sm:right-6 lg:right-8">
+                    <NotificationControl permission={notificationPermission} onRequestPermission={handleRequestNotificationPermission} />
+                </div>
 
                 <div className="space-y-8">
                     <AddNewDay onAddDay={handleAddDay} />
                     
-                    {days.length > 0 && <StreakCounter days={days} taskOptions={taskOptions} />}
-
-                    <WeeklySummary days={days} taskOptions={taskOptions} />
-
-                    <GoalCoaching goals={goals} onAddGoal={handleAddGoal} onDeleteGoal={handleDeleteGoal} days={days} taskOptions={taskOptions} />
+                    <Dashboard 
+                        days={days}
+                        taskOptions={taskOptions}
+                        goals={goals}
+                        onAddGoal={handleAddGoal}
+                        onDeleteGoal={handleDeleteGoal}
+                    />
                 </div>
 
                 {sortedDays.length > 0 ? (
@@ -576,13 +893,6 @@ export default function App() {
                     </div>
                 )}
             </div>
-            <style>{`
-              @keyframes pop-in {
-                0% { opacity: 0; transform: scale(0.5); }
-                100% { opacity: 1; transform: scale(1); }
-              }
-              .animate-pop-in { animation: pop-in 0.5s ease-out forwards; }
-            `}</style>
         </div>
     );
 }

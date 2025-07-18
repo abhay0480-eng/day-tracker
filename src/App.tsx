@@ -454,10 +454,10 @@ function DayCard({ day, onClick, onDelete }: DayCardProps) {
         };
     }, [day.activities]);
 
-    // const handleDeleteClick = (e: React.MouseEvent) => {
-    //     e.stopPropagation();
-    //     onDelete(day.date);
-    // };
+    const handleDeleteClick = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        onDelete(day.date);
+    };
 
     const radius = 30;
     const circumference = 2 * Math.PI * radius;
@@ -504,11 +504,21 @@ function DayCard({ day, onClick, onDelete }: DayCardProps) {
             {/* Download PDF Button */}
             <button
                 onClick={handleDownloadPDF}
-                className="absolute top-2 right-2 p-2 rounded-full bg-green-100 text-green-600 hover:bg-green-200 z-10"
+                className="absolute top-2 right-10 p-2 rounded-full bg-green-100 text-green-600 hover:bg-green-200 z-10"
                 aria-label="Download PDF"
             >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+            </button>
+            {/* Delete Button */}
+            <button
+                onClick={handleDeleteClick}
+                className="absolute top-2 right-2 p-2 rounded-full bg-red-100 text-red-600 hover:bg-red-200 z-10"
+                aria-label="Delete Day"
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
             </button>
             {/* Hidden printable area */}

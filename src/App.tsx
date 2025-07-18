@@ -454,10 +454,10 @@ function DayCard({ day, onClick, onDelete }: DayCardProps) {
         };
     }, [day.activities]);
 
-    const handleDeleteClick = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        onDelete(day.date);
-    };
+    // const handleDeleteClick = (e: React.MouseEvent) => {
+    //     e.stopPropagation();
+    //     onDelete(day.date);
+    // };
 
     const radius = 30;
     const circumference = 2 * Math.PI * radius;

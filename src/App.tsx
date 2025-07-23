@@ -337,7 +337,6 @@ interface DayModalProps {
 function DayModal({ day, allDays, onClose, onSave, taskOptions, onAddNewTask }: DayModalProps) {
     const [currentActivities, setCurrentActivities] = useState<Activity[]>(day.activities);
     const [task, setTask] = useState<string>(taskOptions[0] || '');
-    const [isSuggesting, setIsSuggesting] = useState(false);
     const [startTime, setStartTime] = useState<string>(() => { const now = new Date(); return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`; });
     const [endTime, setEndTime] = useState<string>(() => { const now = new Date(); now.setMinutes(now.getMinutes() + 30); return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`; });
     const [editingActivityId, setEditingActivityId] = useState<number | null>(null);
@@ -350,7 +349,7 @@ function DayModal({ day, allDays, onClose, onSave, taskOptions, onAddNewTask }: 
 
     useEffect(() => {
         document.body.style.overflow = 'hidden';
-        const fetchSuggestion = async () => { if (day.date === formatDateForInput() && day.activities.length === 0) { setIsSuggesting(true); const suggestion = await getAISuggestion(allDays, taskOptions); if (suggestion) { setTask(suggestion); } setIsSuggesting(false); } };
+        const fetchSuggestion = async () => { if (day.date === formatDateForInput() && day.activities.length === 0) {  const suggestion = await getAISuggestion(allDays, taskOptions); if (suggestion) { setTask(suggestion); }} };
         fetchSuggestion();
         return () => { document.body.style.overflow = 'auto'; };
     }, [day, allDays, taskOptions]);
@@ -421,7 +420,7 @@ function DayModal({ day, allDays, onClose, onSave, taskOptions, onAddNewTask }: 
     useEffect(() => {
         // Only suggest if Wake up is selected, before 9am and after 3am
         if (task === "Wake up") {
-            const [h, m] = startTime.split(':').map(Number);
+            const [h] = startTime.split(':').map(Number);
             if (h >= 3 && h < 9) {
                 // Find last activity
                 if (currentActivities.length > 0) {
@@ -435,7 +434,7 @@ function DayModal({ day, allDays, onClose, onSave, taskOptions, onAddNewTask }: 
         }
         // After Washroom, suggest Exercise
         if (task === "Washroom") {
-            const [h, m] = startTime.split(':').map(Number);
+            const [h] = startTime.split(':').map(Number);
             if (h >= 3 && h < 9) {
                 if (currentActivities.length > 0) {
                     const lastTask = currentActivities[currentActivities.length - 1].task;
@@ -447,7 +446,7 @@ function DayModal({ day, allDays, onClose, onSave, taskOptions, onAddNewTask }: 
         }
         // After Exercise, suggest Take Bath
         if (task === "Exercise") {
-            const [h, m] = startTime.split(':').map(Number);
+            const [h] = startTime.split(':').map(Number);
             if (h >= 3 && h < 9) {
                 if (currentActivities.length > 0) {
                     const lastTask = currentActivities[currentActivities.length - 1].task;
@@ -1179,9 +1178,6 @@ const totalProductiveMinutes = allActivities
     .filter(a => productiveTasks.includes(a.task))
     .reduce((sum, a) => sum + calculateDurationInMinutes(a.startTime, a.endTime), 0);
 
-const totalNonProductiveMinutes = allActivities
-    .filter(a => nonProductiveTasks.includes(a.task))
-    .reduce((sum, a) => sum + calculateDurationInMinutes(a.startTime, a.endTime), 0);
 
 const totalLoggedMinutes = allActivities
     .reduce((sum, a) => sum + calculateDurationInMinutes(a.startTime, a.endTime), 0);

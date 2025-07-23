@@ -1167,9 +1167,8 @@ export default function App() {
     // --- Calculate overall time metrics ---
     const allActivities = days.flatMap(d => d.activities);
 
-const totalSleepMinutes = allActivities
-    .filter(a => a.task === "Sleep" || a.task === "Small Nap")
-    .reduce((sum, a) => sum + calculateDurationInMinutes(a.startTime, a.endTime), 0);
+const totalSleepMinutes = calculateTotalSleepMinutes(days);
+
 
 const productiveTasks = ['Office work', 'Video call', 'Office Meeting Scrum', 'Read book', 'Self Learning', 'Exercise'];
 
@@ -1326,4 +1325,29 @@ function MetricsRing({ value, max, label, color, subLabel }: { value: number, ma
             </div>
         </div>
     );
+}
+
+function calculateTotalSleepMinutes(days: Day[]): number {
+    let totalSleep = 0;
+    // Sort days by date ascending
+    const sortedDays = [...days].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    for (let i = 0; i < sortedDays.length; i++) {
+        const sleepActivity = sortedDays[i].activities.find(a => a.task === "Sleep");
+        if (sleepActivity && sleepActivity.startTime) {
+            // Find next day's Wake up
+            const nextDay = sortedDays[i + 1];
+            if (nextDay) {
+                const wakeUpActivity = nextDay.activities.find(a => a.task === "Wake up");
+                if (wakeUpActivity && wakeUpActivity.startTime) {
+                    // Calculate duration from sleep to wake up
+                    totalSleep += calculateDurationInMinutes(sleepActivity.startTime, wakeUpActivity.startTime);
+                }
+            }
+        }
+        // Also add Small Nap durations for this day
+        totalSleep += sortedDays[i].activities
+            .filter(a => a.task === "Small Nap")
+            .reduce((sum, a) => sum + calculateDurationInMinutes(a.startTime, a.endTime), 0);
+    }
+    return totalSleep;
 }

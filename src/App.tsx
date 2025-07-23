@@ -26,7 +26,7 @@ interface Goal {
 // --- Initial Data Configuration ---
 const initialTaskOptions: string[] = [
   'Wake up', 'Washroom', 'Exercise', 'Breakfast', 'Video call', 
-  'Office work', 'Rest', 'Lunch', 'Sleep', 'Read book', 'Call', 'Dinner',
+  'Office work', 'Rest', 'Lunch', 'Sleep', 'Small Nap', 'Read book', 'Call', 'Dinner',
   'Watch TV', 'Editing youTube Video', 'Drink Water', 'Office Meeting Scrum', 'Take Bath', 'Self Learning'
 ];
 
@@ -35,7 +35,8 @@ const taskIcons: { [key: string]: string } = {
   'Video call': '💻', 'Office work': '💼', 'Rest': '🧘', 'Lunch': '🥪',
   'Sleep': '😴', 'Read book': '📚', 'Call': '📞', 'Dinner': '🍽️',
   'Watch TV': '📺', 'Editing youTube Video': '🎬', 'Drink Water': '💧', 
-  'Office Meeting Scrum': '🧑‍💻', 'Take Bath': '🛀', 'Self Learning': '🧠'
+  'Office Meeting Scrum': '🧑‍💻', 'Take Bath': '🛀', 'Self Learning': '🧠',
+  'Small Nap': '🛌'
 };
 
 // --- AI Helper Functions ---
@@ -80,7 +81,14 @@ const getAIWeeklySummary = async (days: Day[], taskOptions: string[]): Promise<s
         toast.error("Track at least 2 days to get a summary.");
         return null;
     }
-    const simplifiedLog = recentDays.map(d => ({ date: d.date, activities: d.activities.map(a => ({ task: a.task, startTime: a.startTime, duration: calculateDuration(a.startTime, a.endTime) })) }));
+    const simplifiedLog = recentDays.map(d => ({
+        date: d.date,
+        activities: d.activities.map(a => ({
+            task: a.task,
+            startTime: a.startTime,
+            duration: calculateDuration(a.startTime, a.endTime)
+        }))
+    }));
     const prompt = `You are a friendly and encouraging productivity coach. Analyze the user's activity log from the past week and provide a short, insightful summary (about 3-4 sentences). Highlight one positive achievement or consistent habit, and gently suggest one area for potential improvement or a pattern to be mindful of. The user's available tasks are: ${taskOptions.join(', ')}. Here is their log: ${JSON.stringify(simplifiedLog)}. Respond in a conversational and motivational tone. Use markdown for formatting, like bolding key tasks with **Task Name**.`;
 
     try {
@@ -335,6 +343,7 @@ function DayModal({ day, allDays, onClose, onSave, taskOptions, onAddNewTask }: 
     const [editingActivityId, setEditingActivityId] = useState<number | null>(null);
     const [editedStartTime, setEditedStartTime] = useState('');
     const [editedEndTime, setEditedEndTime] = useState('');
+    const [isCustomTask, setIsCustomTask] = useState(false);
 
     const pointInTimeTasks = ['Wake up', 'Sleep', 'Drink Water'];
     const showEndTime = !pointInTimeTasks.includes(task);
@@ -346,7 +355,34 @@ function DayModal({ day, allDays, onClose, onSave, taskOptions, onAddNewTask }: 
         return () => { document.body.style.overflow = 'auto'; };
     }, [day, allDays, taskOptions]);
 
-    const handleAddActivity = (e: React.FormEvent) => { e.preventDefault(); const trimmedTask = task.trim(); if (trimmedTask === '') return; onAddNewTask(trimmedTask); const newActivity: Activity = { id: Date.now(), task: trimmedTask, startTime: formatTo12Hour(startTime), endTime: showEndTime ? formatTo12Hour(endTime) : null }; const updatedActivities = [...currentActivities, newActivity].sort((a: Activity, b: Activity) => { const timeA = parseTime(a.startTime); const timeB = parseTime(b.startTime); if (!timeA || !timeB) return 0; return timeA.getTime() - timeB.getTime(); }); setCurrentActivities(updatedActivities); setTask(taskOptions[0] || ''); toast.success(`Added: ${trimmedTask}`); };
+    const handleAddActivity = (e: React.FormEvent) => {
+        e.preventDefault();
+        const trimmedTask = task.trim();
+        if (trimmedTask === '') return;
+        // Prevent duplicate Wake up
+        if (trimmedTask === "Wake up" && currentActivities.some(a => a.task === "Wake up")) {
+            toast.error("You already logged Wake up for this day.");
+            return;
+        }
+        onAddNewTask(trimmedTask);
+        const newActivity: Activity = { id: Date.now(), task: trimmedTask, startTime: formatTo12Hour(startTime), endTime: showEndTime ? formatTo12Hour(endTime) : null };
+        const updatedActivities = [...currentActivities, newActivity].sort((a: Activity, b: Activity) => {
+            const timeA = parseTime(a.startTime);
+            const timeB = parseTime(b.startTime);
+            if (!timeA || !timeB) return 0;
+            return timeA.getTime() - timeB.getTime();
+        });
+        setCurrentActivities(updatedActivities);
+
+        // After adding, reset to first available task in filteredTaskOptions
+        const wakeUpAlreadyAdded = updatedActivities.some(a => a.task === "Wake up");
+        const filteredTaskOptions = wakeUpAlreadyAdded
+            ? taskOptions.filter(opt => opt !== "Wake up")
+            : taskOptions;
+        setTask(filteredTaskOptions[0] || '');
+
+        toast.success(`Added: ${trimmedTask}`);
+    };
     const handleDeleteActivity = (id: number) => { const taskToDelete = currentActivities.find(act => act.id === id); setCurrentActivities(prev => prev.filter(act => act.id !== id)); if(taskToDelete) toast.error(`Removed: ${taskToDelete.task}`); };
     const handleStartEditing = (activity: Activity) => { setEditingActivityId(activity.id); setEditedStartTime(convertTo24Hour(activity.startTime)); setEditedEndTime(convertTo24Hour(activity.endTime)); };
     const handleCancelEditing = () => { setEditingActivityId(null); setEditedStartTime(''); setEditedEndTime(''); };
@@ -371,12 +407,144 @@ function DayModal({ day, allDays, onClose, onSave, taskOptions, onAddNewTask }: 
 
     const handleSave = () => { onSave({ ...day, activities: currentActivities }); onClose(); toast.success('Day saved successfully!'); };
     
+    useEffect(() => {
+        if (task === "Washroom") {
+            const [h, m] = startTime.split(':').map(Number);
+            let endH = h, endM = m + 4;
+            if (endM >= 60) { endH += 1; endM -= 60; }
+            if (endH >= 24) endH = 0;
+            const formattedEnd = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
+            setEndTime(formattedEnd);
+        }
+    }, [task, startTime]);
+
+    useEffect(() => {
+        // Only suggest if Wake up is selected, before 9am and after 3am
+        if (task === "Wake up") {
+            const [h, m] = startTime.split(':').map(Number);
+            if (h >= 3 && h < 9) {
+                // Find last activity
+                if (currentActivities.length > 0) {
+                    const lastTask = currentActivities[currentActivities.length - 1].task;
+                    // If last task is Wake up, suggest Washroom
+                    if (lastTask === "Wake up") {
+                        setTask("Washroom");
+                    }
+                }
+            }
+        }
+        // After Washroom, suggest Exercise
+        if (task === "Washroom") {
+            const [h, m] = startTime.split(':').map(Number);
+            if (h >= 3 && h < 9) {
+                if (currentActivities.length > 0) {
+                    const lastTask = currentActivities[currentActivities.length - 1].task;
+                    if (lastTask === "Washroom") {
+                        setTask("Exercise");
+                    }
+                }
+            }
+        }
+        // After Exercise, suggest Take Bath
+        if (task === "Exercise") {
+            const [h, m] = startTime.split(':').map(Number);
+            if (h >= 3 && h < 9) {
+                if (currentActivities.length > 0) {
+                    const lastTask = currentActivities[currentActivities.length - 1].task;
+                    if (lastTask === "Exercise") {
+                        setTask("Take Bath");
+                    }
+                }
+            }
+        }
+    }, [task, startTime, currentActivities]);
+
+    // Check if Wake up is already added
+    const wakeUpAlreadyAdded = currentActivities.some(a => a.task === "Wake up");
+    const filteredTaskOptions = wakeUpAlreadyAdded
+        ? taskOptions.filter(opt => opt !== "Wake up")
+        : taskOptions;
+
     return (
         <div className="fixed inset-0  bg-opacity-60 backdrop-blur-sm flex justify-center items-center z-50 p-0 sm:p-4">
             <div className="bg-white rounded-none sm:rounded-2xl shadow-2xl w-full max-w-2xl h-full sm:h-[90vh] flex flex-col">
                 <header className="p-4 border-b"><h2 className="text-xl sm:text-2xl font-bold text-gray-800">{formatDateForDisplay(day.date)}</h2><p className="text-gray-500">Log your activities for the day.</p></header>
                 <div className="flex-grow overflow-y-auto p-4">{currentActivities.length > 0 ? (<ul className="divide-y divide-gray-200">{currentActivities.map(activity => (<li key={activity.id} className="py-3">{editingActivityId === activity.id ? ( <div className="flex flex-col gap-2"> <div className="flex items-center gap-4"> <span className="text-2xl w-8 text-center">{taskIcons[activity.task] || '📌'}</span> <p className="font-semibold flex-grow">{activity.task}</p> </div> <div className="flex items-center gap-2 pl-12"> <input type="time" value={editedStartTime} onChange={e => setEditedStartTime(e.target.value)} className="w-full p-1 border border-gray-300 rounded-md"/> { !pointInTimeTasks.includes(activity.task) && <> <span>-</span> <input type="time" value={editedEndTime} onChange={e => setEditedEndTime(e.target.value)} className="w-full p-1 border border-gray-300 rounded-md"/> </> } </div> <div className="flex justify-end gap-2 mt-2"> <button onClick={handleCancelEditing} className="px-3 py-1 bg-gray-200 text-sm rounded-md">Cancel</button> <button onClick={handleUpdateActivity} className="px-3 py-1 bg-blue-600 text-white text-sm rounded-md">Save</button> </div> </div> ) : ( <div className="flex items-center justify-between"> <div className="flex items-center gap-4"> <span className="text-2xl w-8 text-center">{taskIcons[activity.task] || '📌'}</span> <div> <p className="font-semibold">{activity.task}</p> <p className="text-sm text-gray-500"> {activity.startTime} {activity.endTime && ` - ${activity.endTime}`} </p> </div> </div> <div className="flex items-center gap-2"> <span className="text-sm font-medium bg-gray-100 px-2 py-1 rounded-full">{calculateDuration(activity.startTime, activity.endTime)}</span> <button onClick={() => handleStartEditing(activity)} className="p-2 text-gray-500 hover:text-blue-600 hover:bg-gray-100 rounded-full"> <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L16.732 3.732z" /></svg> </button> <button onClick={() => handleDeleteActivity(activity.id)} className="p-2 text-gray-500 hover:text-red-600 hover:bg-gray-100 rounded-full"> <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg> </button> </div> </div> )}</li>))}</ul>) : (<div className="text-center py-10 flex flex-col items-center justify-center h-full"><svg xmlns="http://www.w3.org/2000/svg" className="mx-auto h-12 w-12 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg><p className="mt-4 text-gray-500 font-semibold">No activities logged for this day yet.</p><p className="text-gray-400 text-sm mt-1">Use the form below to add your first activity.</p></div>)}</div>
-                <form onSubmit={handleAddActivity} className="p-4 bg-gray-50 border-t flex flex-col sm:flex-row sm:items-end gap-4"><div className="flex-grow"><label htmlFor="task-input" className="block text-sm font-medium text-gray-700 mb-1">Task</label><input id="task-input" list="task-options" value={task} onChange={e => setTask(e.target.value)} placeholder={isSuggesting ? "AI is suggesting..." : "Type or select a task"} className="w-full p-2 border border-gray-300 rounded-md" disabled={isSuggesting} /><datalist id="task-options">{taskOptions.map(opt => <option key={opt} value={opt} />)}</datalist></div><div><label className="block text-sm font-medium text-gray-700 mb-1">{showEndTime ? 'Start Time' : 'Time'}</label><input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} className="w-full p-2 border border-gray-300 rounded-md"/></div>{showEndTime && (<div><label className="block text-sm font-medium text-gray-700 mb-1">End Time</label><input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} className="w-full p-2 border border-gray-300 rounded-md"/></div>)}<button type="submit" className="w-full sm:w-auto px-4 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 self-end">Add</button></form>
+                <form onSubmit={handleAddActivity} className="p-4 bg-gray-50 border-t flex flex-wrap flex-col sm:flex-row sm:items-end gap-4">
+                    <div className="flex-grow">
+                        <label htmlFor="task-input" className="block text-sm font-medium text-gray-700 mb-1">Task</label>
+                        <div className="flex flex-row gap-2 items-center">
+                            {isCustomTask ? (
+                                <>
+                                    <input
+                                        id="task-input"
+                                        type="text"
+                                        value={task}
+                                        onChange={e => setTask(e.target.value)}
+                                        placeholder="Enter custom task"
+                                        className="flex-1 p-2 border border-gray-300 rounded-md"
+                                        autoFocus
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => { setIsCustomTask(false); setTask(taskOptions[0] || ''); }}
+                                        className="px-3 py-2 bg-gray-100 text-gray-700 rounded-md text-sm hover:bg-gray-200 whitespace-nowrap"
+                                    >
+                                        Cancel
+                                    </button>
+                                </>
+                            ) : (
+                                <>
+                                    <select
+                                        id="task-input"
+                                        value={task}
+                                        onChange={e => setTask(e.target.value)}
+                                        className="flex-1 p-2 border border-gray-300 rounded-md"
+                                    >
+                                        {filteredTaskOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                    </select>
+                                    <button
+                                        type="button"
+                                        onClick={() => { setIsCustomTask(true); setTask(''); }}
+                                        className="px-3 py-2 bg-green-100 text-green-700 rounded-md text-sm hover:bg-green-200 whitespace-nowrap"
+                                    >
+                                        + Add Custom Task
+                                    </button>
+                                </>
+                            )}
+                        </div>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">{showEndTime ? 'Start Time' : 'Time'}</label>
+                        <input
+                            type="time"
+                            value={startTime}
+                            onChange={e => {
+                                const newStart = e.target.value;
+                                setStartTime(newStart);
+                                if (task === "Washroom") {
+                                    // Calculate 4 minutes ahead
+                                    const [h, m] = newStart.split(':').map(Number);
+                                    let endH = h, endM = m + 4;
+                                    if (endM >= 60) { endH += 1; endM -= 60; }
+                                    const formattedEnd = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
+                                    setEndTime(formattedEnd);
+                                }
+                                if (task === "Small Nap") {
+                                    // Default to 20 min nap
+                                    const [h, m] = newStart.split(':').map(Number);
+                                    let endH = h, endM = m + 20;
+                                    if (endM >= 60) { endH += 1; endM -= 60; }
+                                    if (endH >= 24) endH = 0;
+                                    const formattedEnd = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
+                                    setEndTime(formattedEnd);
+                                }
+                            }}
+                            className="w-full p-2 border border-gray-300 rounded-md"
+                        /></div>
+                    {showEndTime && (<div><label className="block text-sm font-medium text-gray-700 mb-1">End Time</label><input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} className="w-full p-2 border border-gray-300 rounded-md"/></div>)}
+                    <button type="submit" className="w-full sm:w-auto px-4 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 self-end">Add</button>
+                </form>
                 <footer className="p-4 flex flex-col sm:flex-row justify-end gap-4 border-t"><button onClick={onClose} className="px-6 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300">Cancel</button><button onClick={handleSave} className="px-6 py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700">Add to Dashboard</button></footer>
             </div>
         </div>
@@ -924,7 +1092,31 @@ export default function App() {
             toast.error("This day already exists on your dashboard.");
             return; 
         }
-        const newDay: Day = { date: date, activities: [] };
+        // Determine weekday
+        const jsDate = new Date(date + 'T00:00:00');
+        const weekday = jsDate.getDay(); // 0=Sun, 1=Mon, ..., 5=Fri, 6=Sat
+
+        let scrumActivity: Activity | null = null;
+        if (weekday >= 1 && weekday <= 4) { // Mon-Thurs
+            scrumActivity = {
+                id: Date.now(),
+                task: "Office Meeting Scrum",
+                startTime: "12:30 PM",
+                endTime: "1:00 PM"
+            };
+        } else if (weekday === 5) { // Friday
+            scrumActivity = {
+                id: Date.now(),
+                task: "Office Meeting Scrum",
+                startTime: "12:00 PM",
+                endTime: "12:30 PM"
+            };
+        }
+
+        const newDay: Day = { 
+            date: date, 
+            activities: scrumActivity ? [scrumActivity] : [] 
+        };
         handleOpenModal(newDay);
     };
 
@@ -972,6 +1164,31 @@ export default function App() {
     }, [days]);
 
     const greeting = getGreeting();
+
+    // --- Calculate overall time metrics ---
+    const allActivities = days.flatMap(d => d.activities);
+
+const totalSleepMinutes = allActivities
+    .filter(a => a.task === "Sleep" || a.task === "Small Nap")
+    .reduce((sum, a) => sum + calculateDurationInMinutes(a.startTime, a.endTime), 0);
+
+const productiveTasks = ['Office work', 'Video call', 'Office Meeting Scrum', 'Read book', 'Self Learning', 'Exercise'];
+const nonProductiveTasks = ['Watch TV', 'Rest', 'Small Nap', 'Call', 'Dinner', 'Lunch', 'Breakfast'];
+
+const totalProductiveMinutes = allActivities
+    .filter(a => productiveTasks.includes(a.task))
+    .reduce((sum, a) => sum + calculateDurationInMinutes(a.startTime, a.endTime), 0);
+
+const totalNonProductiveMinutes = allActivities
+    .filter(a => nonProductiveTasks.includes(a.task))
+    .reduce((sum, a) => sum + calculateDurationInMinutes(a.startTime, a.endTime), 0);
+
+const totalLoggedMinutes = allActivities
+    .reduce((sum, a) => sum + calculateDurationInMinutes(a.startTime, a.endTime), 0);
+
+// Assume a day is 24 hours * number of days tracked
+const totalDayMinutes = days.length * 24 * 60;
+const totalIdleMinutes = Math.max(0, totalDayMinutes - totalLoggedMinutes);
 
     return (
         <div className="bg-gray-100 min-h-screen font-sans">
@@ -1046,6 +1263,70 @@ export default function App() {
                         </p>
                     </div>
                 )}
+            </div>
+
+            {/* Metrics Section */}
+            {days.length > 0 && (
+                <div className="container mx-auto p-4 sm:p-6 lg:p-8">
+                    <div className="bg-white rounded-xl shadow-lg p-6">
+                        <h2 className="text-xl font-bold text-gray-800 mb-4">Your Weekly Metrics</h2>
+                        <div className="flex flex-col sm:flex-row gap-6">
+                            <MetricsRing
+                                value={totalSleepMinutes}
+                                max={totalDayMinutes}
+                                label="Total Sleep"
+                                color="#6366f1"
+                                subLabel="(Sleep + Nap)"
+                            />
+                            <MetricsRing
+                                value={totalProductiveMinutes}
+                                max={totalLoggedMinutes}
+                                label="Productive"
+                                color="#10b981"
+                                subLabel="Work & Growth"
+                            />
+                            <MetricsRing
+                                value={totalIdleMinutes}
+                                max={totalDayMinutes}
+                                label="Idle Time"
+                                color="#f59e42"
+                                subLabel="Unaccounted"
+                            />
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+function MetricsRing({ value, max, label, color, subLabel }: { value: number, max: number, label: string, color: string, subLabel?: string }) {
+    const radius = 32;
+    const circumference = 2 * Math.PI * radius;
+    const percent = max > 0 ? value / max : 0;
+    const offset = circumference * (1 - percent);
+
+    return (
+        <div className="flex flex-col items-center justify-center">
+            <svg width="80" height="80" viewBox="0 0 80 80">
+                <circle cx="40" cy="40" r={radius} stroke="#e5e7eb" strokeWidth="8" fill="none" />
+                <circle
+                    cx="40"
+                    cy="40"
+                    r={radius}
+                    stroke={color}
+                    strokeWidth="8"
+                    fill="none"
+                    strokeDasharray={circumference}
+                    strokeDashoffset={offset}
+                    strokeLinecap="round"
+                    transform="rotate(-90 40 40)"
+                />
+            </svg>
+            <div className="mt-2 text-center">
+                <div className="text-lg font-bold">{label}</div>
+                <div className="text-sm text-gray-500">{subLabel}</div>
+                <div className="text-xl font-extrabold mt-1">{formatDuration(value)}</div>
             </div>
         </div>
     );

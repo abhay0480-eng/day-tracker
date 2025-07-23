@@ -1185,6 +1185,11 @@ const totalLoggedMinutes = allActivities
 const totalDayMinutes = days.length * 24 * 60;
 const totalIdleMinutes = Math.max(0, totalDayMinutes - totalLoggedMinutes);
 
+    const nightlySleep = getNightlySleepDurations(days);
+const averageSleep = nightlySleep.length > 0
+    ? Math.round(nightlySleep.reduce((sum, n) => sum + n.duration, 0) / nightlySleep.length)
+    : 0;
+
     return (
         <div className="bg-gray-100 min-h-screen font-sans">
             <Toaster position="top-center" reverseOrder={false} />
@@ -1265,7 +1270,7 @@ const totalIdleMinutes = Math.max(0, totalDayMinutes - totalLoggedMinutes);
                 <div className="container mx-auto p-4 sm:p-6 lg:p-8">
                     <div className="bg-white rounded-xl shadow-lg p-6">
                         <h2 className="text-xl font-bold text-gray-800 mb-4">Your Weekly Metrics</h2>
-                        <div className="flex flex-col sm:flex-row gap-6">
+                        <div className="flex flex-col sm:flex-row gap-6 mb-6">
                             <MetricsRing
                                 value={totalSleepMinutes}
                                 max={totalDayMinutes}
@@ -1288,6 +1293,20 @@ const totalIdleMinutes = Math.max(0, totalDayMinutes - totalLoggedMinutes);
                                 subLabel="Unaccounted"
                             />
                         </div>
+                        <div className="mt-6">
+                <h3 className="text-lg font-bold text-gray-800 mb-2">Nightly Sleep Durations</h3>
+                <ul className="space-y-2">
+                    {nightlySleep.map((n, idx) => (
+                        <li key={idx} className="flex justify-between text-sm text-gray-700">
+                            <span>{n.date}</span>
+                            <span>{formatDuration(n.duration)}</span>
+                        </li>
+                    ))}
+                </ul>
+                <div className="mt-4 text-indigo-700 font-semibold">
+                    Average Sleep: {formatDuration(averageSleep)}
+                </div>
+            </div>
                     </div>
                 </div>
             )}
@@ -1350,4 +1369,30 @@ function calculateTotalSleepMinutes(days: Day[]): number {
             .reduce((sum, a) => sum + calculateDurationInMinutes(a.startTime, a.endTime), 0);
     }
     return totalSleep;
+}
+
+function getNightlySleepDurations(days: Day[]): { date: string, duration: number }[] {
+    const nightly = [];
+    const sortedDays = [...days].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    for (let i = 0; i < sortedDays.length - 1; i++) {
+        const sleepActivity = sortedDays[i].activities.find(a => a.task === "Sleep");
+        const nextDay = sortedDays[i + 1];
+        const wakeUpActivity = nextDay.activities.find(a => a.task === "Wake up");
+        if (sleepActivity && sleepActivity.startTime && wakeUpActivity && wakeUpActivity.startTime) {
+            nightly.push({
+                date: `${sortedDays[i].date} → ${nextDay.date}`,
+                duration: calculateDurationInMinutes(sleepActivity.startTime, wakeUpActivity.startTime)
+            });
+        }
+    }
+    // Add Small Nap for each day as a separate entry (optional)
+    sortedDays.forEach(day => {
+        day.activities.filter(a => a.task === "Small Nap" && a.startTime && a.endTime).forEach(nap => {
+            nightly.push({
+                date: `${day.date} (Nap)`,
+                duration: calculateDurationInMinutes(nap.startTime, nap.endTime)
+            });
+        });
+    });
+    return nightly;
 }

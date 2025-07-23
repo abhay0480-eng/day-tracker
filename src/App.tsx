@@ -1172,7 +1172,7 @@ const totalSleepMinutes = allActivities
     .reduce((sum, a) => sum + calculateDurationInMinutes(a.startTime, a.endTime), 0);
 
 const productiveTasks = ['Office work', 'Video call', 'Office Meeting Scrum', 'Read book', 'Self Learning', 'Exercise'];
-const nonProductiveTasks = ['Watch TV', 'Rest', 'Small Nap', 'Call', 'Dinner', 'Lunch', 'Breakfast'];
+
 
 const totalProductiveMinutes = allActivities
     .filter(a => productiveTasks.includes(a.task))
